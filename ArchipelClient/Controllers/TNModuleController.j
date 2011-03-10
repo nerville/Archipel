@@ -65,7 +65,6 @@ TNArchipelModulesAllReadyNotification           = @"TNArchipelModulesAllReadyNot
 
 
 
-
 /*! @ingroup archipelcore
 
     this is the Archipel Module loader.
@@ -80,6 +79,7 @@ TNArchipelModulesAllReadyNotification           = @"TNArchipelModulesAllReadyNot
     @outlet  CPView                 viewPermissionDenied;
 
     BOOL                            _allModulesReady                @accessors(getter=isAllModulesReady);
+    BOOL                            _moduleLoadingStarted           @accessors(getter=isModuleLoadingStarted);
     CPArray                         _loadedTabModules               @accessors(getter=loadedTabModules);
     CPDictionary                    _loadedToolbarModules           @accessors(getter=loadedToolbarModules);
     CPMenu                          _modulesMenu                    @accessors(property=modulesMenu);
@@ -126,6 +126,7 @@ TNArchipelModulesAllReadyNotification           = @"TNArchipelModulesAllReadyNot
         _numberOfReadyModules                   = 0;
         _allModulesReady                        = NO;
         _deactivateModuleTabItemPositionStorage = NO;
+        _moduleLoadingStarted                   = NO;
     }
 
     return self;
@@ -199,6 +200,7 @@ TNArchipelModulesAllReadyNotification           = @"TNArchipelModulesAllReadyNot
     }
 }
 
+
 #pragma mark -
 #pragma mark Storage
 
@@ -256,32 +258,25 @@ TNArchipelModulesAllReadyNotification           = @"TNArchipelModulesAllReadyNot
     var request     = [CPURLRequest requestWithURL:[CPURL URLWithString:@"Modules/modules.plist"]],
         connection  = [CPURLConnection connectionWithRequest:request delegate:self];
 
+    _moduleLoadingStarted = YES;
     [connection cancel];
     [connection start];
 }
 
 /*! will load all CPBundle
 */
-- (void)_loadAllBundles
+- (void)_loadNextBundle
 {
-    CPLog.debug("going to parse the plist");
+    var module  = [[_modulesPList objectForKey:@"Modules"] objectAtIndex:_numberOfModulesLoaded],
+        path    = _modulesPath + [module objectForKey:@"folder"],
+        bundle  = [CPBundle bundleWithPath:path];
 
-    _numberOfModulesToLoad = [[_modulesPList objectForKey:@"Modules"] count];
+    CPLog.debug("Loading " + [CPBundle bundleWithPath:path]);
 
-    for (var i = 0; i < [[_modulesPList objectForKey:@"Modules"] count]; i++)
-    {
-        CPLog.debug("parsing " + [CPBundle bundleWithPath:path]);
+    if ([_delegate respondsToSelector:@selector(moduleLoader:willLoadBundle:)])
+        [_delegate moduleLoader:self willLoadBundle:bundle];
 
-        var module  = [[_modulesPList objectForKey:@"Modules"] objectAtIndex:i],
-            path    = _modulesPath + [module objectForKey:@"folder"],
-            bundle  = [CPBundle bundleWithPath:path];
-
-        if ([_delegate respondsToSelector:@selector(moduleLoader:willLoadBundle:)])
-            [_delegate moduleLoader:self willLoadBundle:bundle];
-
-        [bundle loadWithDelegate:self];
-    }
-
+    [bundle loadWithDelegate:self];
 }
 
 /*! will display the modules that have to be displayed according to the entity type.
@@ -468,7 +463,7 @@ TNArchipelModulesAllReadyNotification           = @"TNArchipelModulesAllReadyNot
 
     [_mainToolbar addItem:moduleToolbarItem withIdentifier:moduleName];
     [_mainToolbar setPosition:moduleToolbarIndex forToolbarItemIdentifier:moduleName];
-    [_mainToolbar _reloadToolbarItems];
+    //[_mainToolbar _reloadToolbarItems];
 
     [currentModuleController initializeModule];
     [currentModuleController setName:moduleName];
@@ -580,6 +575,26 @@ TNArchipelModulesAllReadyNotification           = @"TNArchipelModulesAllReadyNot
 #pragma mark -
 #pragma mark Delegates
 
+/*! TNiTunesTabView delegate. Wil check if current tab item is OK to be hidden
+    @param aTabView the TNiTunesTabView that sent the message (_mainTabView)
+    @param anItem the item that should be selected
+*/
+- (BOOL)tabView:(TNiTunesTabView)aTabView shouldSelectTabViewItem:(TNModuleTabViewItem)anItem
+{
+    if ([aTabView numberOfTabViewItems] <= 0)
+        return YES;
+
+    var currentTabItem = [aTabView selectedTabViewItem];
+
+    if (!currentTabItem)
+        return YES;
+
+    var currentModule = [currentTabItem module];
+
+    return [currentModule shouldHide];
+}
+
+
 /*! TNiTunesTabView delegate. Will sent willHide to current tab module and willShow to the one that will be be display
     @param aTabView the TNiTunesTabView that sent the message (_mainTabView)
     @param anItem the new selected item
@@ -619,11 +634,12 @@ TNArchipelModulesAllReadyNotification           = @"TNArchipelModulesAllReadyNot
 
     CPLog.info(@"Module.plist recovered");
 
-    _modulesPList = [cpdata plistObject];
+    _modulesPList           = [cpdata plistObject];
+    _numberOfModulesToLoad  = [[_modulesPList objectForKey:@"Modules"] count];
 
     [self _removeAllTabsFromModulesTabView];
 
-    [self _loadAllBundles];
+    [self _loadNextBundle];
 }
 
 /*! delegate of CPBundle. Will initialize all the modules in plist
@@ -640,11 +656,13 @@ TNArchipelModulesAllReadyNotification           = @"TNArchipelModulesAllReadyNot
     else if (moduleInsertionType == TNArchipelModuleTypeToolbar)
         [self manageToolbarItemLoad:aBundle];
 
-    if ([_delegate respondsToSelector:@selector(moduleLoader:hasLoadBundle:)])
-        [_delegate moduleLoader:self hasLoadBundle:aBundle];
-
     _numberOfModulesLoaded++;
     CPLog.debug("Loaded " + _numberOfModulesLoaded + " module(s) of " + _numberOfModulesToLoad)
+
+    if ([_delegate respondsToSelector:@selector(moduleLoader:loadedBundle:progress:)])
+        [_delegate moduleLoader:self loadedBundle:aBundle progress:(_numberOfModulesLoaded / _numberOfModulesToLoad)];
+
+
     if (_numberOfModulesLoaded == _numberOfModulesToLoad)
     {
         var center = [CPNotificationCenter defaultCenter];
@@ -656,6 +674,10 @@ TNArchipelModulesAllReadyNotification           = @"TNArchipelModulesAllReadyNot
             [_delegate moduleLoaderLoadingComplete:self];
             [self insertModulesMenuItems];
         }
+    }
+    else
+    {
+        [self _loadNextBundle];
     }
 }
 

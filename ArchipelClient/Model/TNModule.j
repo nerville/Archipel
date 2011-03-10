@@ -493,6 +493,15 @@ TNArchipelErrorGeneral                  = 1;
     _isVisible = NO;
 }
 
+/*! this message will be send by the module controler
+    in order to know if the module can be hide
+    @return YES if it's OK
+*/
+- (BOOL)shouldHide
+{
+    return YES;
+}
+
 /*! this message is sent when the MainMenu is ready
     i.e. you can insert your module menu items;
 */
@@ -584,7 +593,10 @@ TNArchipelErrorGeneral                  = 1;
         CPLog.error(msg);
     }
     else
+    {
         CPLog.error(@"Error " + code + " / " + type + ". No message. If 503, it should be allright");
+        CPLog.trace(aStanza);
+    }
 
     return TNArchipelErrorGeneral;
 }

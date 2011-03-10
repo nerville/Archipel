@@ -28,24 +28,24 @@
     using VNC.
 */
 
-TNArchipelPushNotificationControl               = @"archipel:push:virtualmachine:control";
+TNArchipelPushNotificationVNC                   = @"archipel:push:virtualmachine:vnc";
 
 /*! @ingroup virtualmachinevnc
-    @group TNArchipelTypeVirtualMachineControl
+    @group TNArchipelTypeVirtualMachineVNC
     namespave of vm control
 */
-TNArchipelTypeVirtualMachineControl             = @"archipel:vm:control";
+TNArchipelTypeVirtualMachineVNC                 = @"archipel:virtualmachine:vnc";
 
 /*! @ingroup virtualmachinenovnc
-    @group TNArchipelTypeVirtualMachineControl
+    @group TNArchipelTypeVirtualMachineVNC
     get vnc display
 */
-TNArchipelTypeVirtualMachineControlVNCDisplay   = @"vncdisplay";
+TNArchipelTypeVirtualMachineVNCDisplay          = @"display";
 
 
 
 /*! @ingroup virtualmachinenovnc
-    @group TNArchipelTypeVirtualMachineControl
+    @group TNArchipelTypeVirtualMachineVNC
     identifier prefix of zoom scaling
 */
 TNArchipelVNCScaleFactor                        = @"TNArchipelVNCScaleFactor_";
@@ -179,7 +179,7 @@ TNArchipelVNCShowExternalWindowNotification = @"TNArchipelVNCShowExternalWindowN
     [center addObserver:self selector:@selector(_showExternalScreen:) name:TNArchipelVNCShowExternalWindowNotification object:nil];
     [center addObserver:self selector:@selector(_didVNCInformationRecovered:) name:TNArchipelVNCInformationRecoveredNotification object:self];
 
-    [self registerSelector:@selector(_didReceivePush:) forPushNotificationType:TNArchipelPushNotificationControl];
+    [self registerSelector:@selector(_didReceivePush:) forPushNotificationType:TNArchipelPushNotificationVNC];
 
     [center postNotificationName:TNArchipelModulesReadyNotification object:self];
 
@@ -276,7 +276,7 @@ TNArchipelVNCShowExternalWindowNotification = @"TNArchipelVNCShowExternalWindowN
 #pragma mark -
 #pragma mark Notification handlers
 
-/*! called when TNArchipelPushNotificationControl is recieved
+/*! called when TNArchipelPushNotificationVNC is recieved
     @param somePushInfo CPDictionary containing the push information
 */
 - (BOOL)_didReceivePush:(CPDictionary)somePushInfo
@@ -420,12 +420,12 @@ TNArchipelVNCShowExternalWindowNotification = @"TNArchipelVNCShowExternalWindowN
         var growl = [TNGrowlCenter defaultCenter];
         if (_vncOnlySSL)
         {
-            [growl pushNotificationWithTitle:@"VNC" message:@"Your browser doesn't support TLSv1 for WebSocket and Archipel server doesn't support plain connection. Use Google Chrome." icon:TNGrowlIconError];
+            CPLog.warn(@"Your browser doesn't support TLSv1 for WebSocket and Archipel server doesn't support plain connection. Use Google Chrome.");
             return;
         }
         else
         {
-            [growl pushNotificationWithTitle:@"VNC" message:@"Your browser doesn't support Websocket TLSv1. We use plain connection." icon:TNGrowlIconWarning];
+            CPLog.warn(@"Your browser doesn't support Websocket TLSv1. We use plain connection.");
             _useSSL = NO;
         }
     }
@@ -462,6 +462,7 @@ TNArchipelVNCShowExternalWindowNotification = @"TNArchipelVNCShowExternalWindowN
     [_vncView setEncrypted:_useSSL];
     [_vncView setDelegate:self];
 
+    CPLog.info("VNC: connecting to " + _VMHost + ":" + _vncProxyPort + " using SSL:" + _useSSL);
     [_vncView load];
     [_vncView connect:nil];
 }
@@ -619,9 +620,9 @@ TNArchipelVNCShowExternalWindowNotification = @"TNArchipelVNCShowExternalWindowN
 {
     var stanza   = [TNStropheStanza iqWithType:@"get"];
 
-    [stanza addChildWithName:@"query" andAttributes:{"xmlns": TNArchipelTypeVirtualMachineControl}];
+    [stanza addChildWithName:@"query" andAttributes:{"xmlns": TNArchipelTypeVirtualMachineVNC}];
     [stanza addChildWithName:@"archipel" andAttributes:{
-        "action": TNArchipelTypeVirtualMachineControlVNCDisplay}];
+        "action": TNArchipelTypeVirtualMachineVNCDisplay}];
 
     [_entity sendStanza:stanza andRegisterSelector:@selector(_didReceiveVNCDisplay:) ofObject:self];
 }
@@ -634,7 +635,7 @@ TNArchipelVNCShowExternalWindowNotification = @"TNArchipelVNCShowExternalWindowN
     if ([aStanza type] == @"result")
     {
         var defaults    = [CPUserDefaults standardUserDefaults],
-            displayNode = [aStanza firstChildWithName:@"vncdisplay"];
+            displayNode = [aStanza firstChildWithName:@"display"];
 
         _VMHost         = [displayNode valueForAttribute:@"host"];
         _vncProxyPort   = [displayNode valueForAttribute:@"proxy"];
@@ -689,7 +690,11 @@ TNArchipelVNCShowExternalWindowNotification = @"TNArchipelVNCShowExternalWindowN
             }
             else
             {
+                [[TNGrowlCenter defaultCenter] pushNotificationWithTitle:@"Connection fail"
+                                         message:@"Cannot connect to the VNC screen at " + _VMHost + @":" + _vncProxyPort
+                                            icon:TNGrowlIconError];
                 [imageViewSecureConnection setHidden:YES];
+                CPLog.error(@"Cannot connect to the VNC screen at " + _VMHost + @":" + _vncProxyPort);
             }
             [_vncView resetSize];
             break;

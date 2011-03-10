@@ -146,6 +146,7 @@
 {
     [super willUnload];
 
+    [self save];
     [_messages removeAllObjects];
     [_messageBoard removeAllMessages:nil];
 
@@ -332,12 +333,25 @@
 
     for (var j = 0; j < [lastConversation count]; j++)
     {
-        var author  = [[lastConversation objectAtIndex:j] objectForKey:@"name"],
-            message = [[lastConversation objectAtIndex:j] objectForKey:@"message"],
-            color   = [[lastConversation objectAtIndex:j] objectForKey:@"color"],
-            date   = [[lastConversation objectAtIndex:j] objectForKey:@"date"];
+        var author      = [[lastConversation objectAtIndex:j] objectForKey:@"name"],
+            message     = [[lastConversation objectAtIndex:j] objectForKey:@"message"],
+            color       = [[lastConversation objectAtIndex:j] objectForKey:@"color"],
+            date        = [[lastConversation objectAtIndex:j] objectForKey:@"date"],
+            avatar      = nil,
+            position    = nil;
 
-        [_messageBoard addMessage:message from:author date:date color:color];
+        if (author != @"me")
+        {
+            avatar = [_entity avatar];
+            position = TNMessageViewAvatarPositionRight;
+        }
+        else
+        {
+            avatar = [[TNStropheIMClient defaultClient] avatar];
+            position = TNMessageViewAvatarPositionLeft;
+        }
+
+        [_messageBoard addMessage:message from:author date:date color:color avatar:avatar position:position];
     }
 }
 
@@ -355,13 +369,27 @@
 */
 - (void)appendMessageToBoard:(CPString)aMessage from:(CPString)aSender
 {
-    var color           = (aSender == @"me") ? [CPColor colorWithHexString:@"d9dfe8"] : [CPColor colorWithHexString:@"ffffff"],
+    var color           = (aSender == @"me") ? TNMessageViewBubbleColorNormal : TNMessageViewBubbleColorAlt,
         date            = [CPDate date],
         newMessageDict  = [CPDictionary dictionaryWithObjectsAndKeys:aSender, @"name", aMessage, @"message", color, @"color", date, @"date"],
-        frame           = [[messagesScrollView documentView] frame];
+        frame           = [[messagesScrollView documentView] frame],
+        avatar          = nil,
+        position        = nil;
 
     [_messages addObject:newMessageDict];
-    [_messageBoard addMessage:aMessage from:aSender date:date color:color];
+
+    if (aSender != @"me")
+    {
+        avatar = [_entity avatar];
+        position = TNMessageViewAvatarPositionRight;
+    }
+    else
+    {
+        avatar = [[TNStropheIMClient defaultClient] avatar];
+        position = TNMessageViewAvatarPositionLeft;
+    }
+
+    [_messageBoard addMessage:aMessage from:aSender date:date color:color avatar:avatar position:position];
 
     // scroll to bottom;
     var newScrollOrigin = CPMakePoint(0.0, frame.size.height);

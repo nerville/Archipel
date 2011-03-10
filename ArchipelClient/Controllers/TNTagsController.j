@@ -67,6 +67,9 @@ TNTagsControllerNodeReadyNotification = @"TNTagsControllerNodeReadyNotification"
     [_tokenFieldTags setEditable:YES];
     [_tokenFieldTags setEnabled:NO];
     [_tokenFieldTags setPlaceholderString:@"You can't assign tags here"];
+    [_tokenFieldTags setTarget:self];
+    [_tokenFieldTags setAction:@selector(performSetTags:)];
+
     [mainView addSubview:_tokenFieldTags];
 
 
@@ -210,11 +213,8 @@ TNTagsControllerNodeReadyNotification = @"TNTagsControllerNodeReadyNotification"
         for (var j = 0; j < [tags count]; j++)
         {
             var tag = [tags objectAtIndex:j];
-            if (tag
-                && (tag.indexOf(aSubstring) != -1)
-                && ![availableTags containsObject:tag]
-                && ![[_tokenFieldTags objectValue] containsObject:tag])
-                [availableTags addObjectsFromArray:tag];
+            if (tag && (tag.indexOf(aSubstring) != -1) && ![availableTags containsObject:tag] && ![[_tokenFieldTags objectValue] containsObject:tag])
+                [availableTags addObject:tag];
         }
     }
 

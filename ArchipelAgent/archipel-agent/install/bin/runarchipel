@@ -1,0 +1,153 @@
+#!/usr/bin/python -W ignore::DeprecationWarning
+#
+# runarchipel
+#
+# Copyright (C) 2010 Antoine Mercadal <antoine.mercadal@inframonde.eu>
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+
+import os, sys
+import getopt
+import xmpp
+import socket
+
+## error codes
+ARCHIPEL_INIT_SUCCESS                   = 0
+ARCHIPEL_INIT_ERROR_NO_CONFIG           = 1
+ARCHIPEL_INIT_ERROR_NO_MODULE           = 2
+ARCHIPEL_INIT_ERROR_BAD_LIBVIRT         = 3
+ARCHIPEL_INIT_ERROR_UNKNOWN             = 4
+ARCHIPEL_INIT_ERROR_CONNECTION          = 5
+ARCHIPEL_INIT_ERROR_LOOP_INTERRUPTION   = 6
+
+try:
+    from archipelcore.utils import init_conf
+    from archipel.archipelHypervisor import TNArchipelHypervisor
+    from archipel.libvirtEventLoop import virEventLoopPureStart
+except ImportError as ex:
+    print "\033[31mERROR: %s\033[0m" % str(ex)
+    sys.exit(ARCHIPEL_INIT_ERROR_NO_MODULE)
+
+
+## help message
+ARCHIPEL_CMD_HELP   = """\
+Archipel Agent (c) 2010 Antoine Mercadal
+
+usage: runarchipel [--nofork] [--config=</path/to/conf>]
+
+Options :
+* --nofork : run archipel in the current process. Do not fork. This is for testing.
+* --config : The path of the config file to use. Default is /etc/archipel/archipel.conf
+"""
+
+
+def format_version(info):
+    """format the verson info"""
+    print " - %s : %s" % (info[0], info[1])
+
+
+def help():
+    """display help"""
+    print ARCHIPEL_CMD_HELP
+    sys.exit(ARCHIPEL_INIT_SUCCESS)
+
+
+def versions():
+    import pkg_resources
+    """print versions of all installed modules"""
+    print "\033[32m* Archipel Agent version : \033[0m"
+    format_version(("archipelagent", pkg_resources.get_distribution("archipel-agent").version))
+    print "\n\033[32m* Installed plugins versions : \033[0m"
+    for version_method in pkg_resources.iter_entry_points(group="archipel.plugin", name="version"):
+        method  = version_method.load()
+        format_version(method())
+    sys.exit(ARCHIPEL_INIT_SUCCESS)
+
+
+def test_libvirt():
+    """test if all needed libvirt's function are present"""
+    try:
+        import libvirt
+    except:
+        print "\n\n\033[31mERROR: you need python libvirt module. I can't import it.\033[0m\n"
+        return False
+    try:
+        getattr(libvirt.virConnect, "domainEventRegisterAny")
+    except:
+        print "\n\n\033[31mERROR: your libvirt copy doesn't handle Events correctly. please update to 0.8.3+.\033[0m\n"
+        return False
+    return True
+
+
+def main():
+    """
+    main function of Archipel
+    """
+    if not test_libvirt(): sys.exit(ARCHIPEL_INIT_ERROR_BAD_LIBVIRT)
+
+    # starting thre libvirt event loop
+    virEventLoopPureStart()
+
+    # initializing the hypervisor XMPP entity
+    jid         = xmpp.JID(config.get("HYPERVISOR", "hypervisor_xmpp_jid"))
+    password    = config.get("HYPERVISOR", "hypervisor_xmpp_password")
+    database    = config.get("HYPERVISOR", "hypervisor_database_path")
+    name        = config.get("HYPERVISOR", "hypervisor_name")
+    jid.setResource(socket.gethostname())
+    hyp = TNArchipelHypervisor(jid, password, config, name, database)
+    try:
+        hyp.connect()
+    except Exception as ex:
+        log.error("RUNARCHIPEL: Cannot connect using JID %s. Initialization aborted: %s" % (jid, str(ex)))
+        sys.exit(ARCHIPEL_INIT_ERROR_CONNECTION)
+    try:
+        hyp.loop()
+    except Exception as ex:
+        log.error("RUNARCHIPEL: Exception has stoped the hypervisor main loop: %s" % str(ex))
+        sys.exit(ARCHIPEL_INIT_ERROR_LOOP_INTERRUPTION)
+
+
+if __name__ == "__main__":
+    """
+    Main loop of the program
+    """
+    opts, args  = getopt.getopt(sys.argv[1:], "hnv", ["nofork", "config=", "help", "version"])
+    configPath  = "/etc/archipel/archipel.conf"
+    fork        = True
+
+    for o, a in opts:
+        if o in ("--config"):           configPath = a
+        if o in ("-n", "--nofork"):     fork = False
+        if o in ("-h", "--help"):       help()
+        if o in ("-v", "--version"):    versions()
+
+    try:
+        config = init_conf(configPath)
+    except:
+        print "\033[31mCONFIG: unable to read configuration file %s\033[0m" % configPath
+        sys.exit(ARCHIPEL_INIT_ERROR_NO_CONFIG)
+
+    if fork:
+        try:
+            pid = os.fork()
+            if pid == 0: main()
+            else: sys.exit(ARCHIPEL_INIT_SUCCESS)
+        except OSError as e:
+            sys.exit(ARCHIPEL_INIT_ERROR_UNKNOWN)
+    else:
+        try:
+            main()
+        except KeyboardInterrupt:
+            sys.exit(ARCHIPEL_INIT_SUCCESS)
+

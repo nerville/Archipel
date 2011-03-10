@@ -267,25 +267,31 @@ def install_archipelclient(interactive=True, properties=None):
 def client_build_cappuccino():
     print " * Building Cappuccino";
     print "\n\033[35m*******************************************************************************"
-    ret = os.system("cd ./Libraries/Cappuccino && ./bootstrap.sh")
+    ret = os.system("cd ./Libraries/Cappuccino && ./bootstrap.sh --install-capp")
     if ret != 0:
         print "\033[31mUnable to bootstrap Cappuccino\033[0m"
         sys.exit(1)
+    if os.path.exists(os.path.expanduser("~/.profile")):
+        profile = open(os.path.expanduser("~/.profile"), "r")
+        for line in profile:
+             # We just want the last line but it seems Python must do something in a loop
+             last_line = line
+        profile.close()
+        if (last_line.find('export PATH=\"') != -1) and (last_line.find(':$PATH\"') != -1):
+             last_line = last_line.replace('export PATH=\"', '')
+             last_line = last_line.replace(':$PATH\"', '')
+             last_line = last_line.strip();
+             os.environ['PATH'] = os.environ['PATH']+':'+last_line
+        else:
+             os.environ['PATH'] = os.environ['PATH']+':/usr/local/narwhal/bin'
+    else:
+        os.environ['PATH'] = os.environ['PATH']+':/usr/local/narwhal/bin'
     ret = os.system("cd ./Libraries/Cappuccino && jake install")
     print "*******************************************************************************\033[0m"
     if ret != 0:
         print "\033[31mUnable to build Cappuccino\033[0m"
         sys.exit(1)
     print "\033[32m * Cappuccinno build\033[0m"
-    os.system("export PATH=/usr/local/narwhal/bin;$PATH")
-    if os.path.exists("~/.profile"):
-        os.system("source ~/.profile")
-    elif os.path.exists("~/.bash_profile"):
-        os.system("source ~/.bash_profile")
-    elif os.path.exists("~/.bashrc"):
-        os.system("source ~/.bashrc")
-    else:
-        os.system("export PATH='/usr/local/narwhal/bin:$PATH'")
 
 
 def client_build_strophecappuccino():
@@ -372,7 +378,7 @@ def client_build_archipel(exportpath=None):
         export = ""
     print " * Building ArchipelClient"
     s = Spinner();
-    os.system("cd ./ArchipelClient && ./buildArchipel -bag --config=release %s %s" % (export, REDIRECT))
+    os.system("./buildArchipel -bag --config=release %s %s" % (export, REDIRECT))
     s.stop()
     print "\033[32m * ArchipelClient built\033[0m"
 
@@ -380,13 +386,14 @@ def client_build_archipel(exportpath=None):
 def client_apply_cappuccino_frameworks():
     print " * Adding Cappuccino framework"
     s = Spinner();
-    os.system("/usr/local/narwhal/bin/capp gen -f ./ArchipelClient %s" % REDIRECT)
+    os.system("capp gen -f . %s" % REDIRECT)
     s.stop()
     print "\033[32m * Cappuccino added\033[0m"
 
 
 def client_export_archipel(path):
     print " * Exporting archipel to %s" % path
+    os.system("mkdir -p %s %s" % (path, REDIRECT))
     s = Spinner();
     os.system("cp -a ./Build/Release/Archipel %s %s" % (path, REDIRECT))
     s.stop()

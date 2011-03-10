@@ -20,10 +20,11 @@
 @import <AppKit/AppKit.j>
 @import <LPKit/LPKit.j>
 
-@import "TNDriveObject.j";
+@import "TNDriveObject.j"
 @import "TNNetworkInterfaceObject.j"
-@import "TNDriveController.j";
-@import "TNNetworkController.j";
+@import "TNDriveController.j"
+@import "TNNetworkController.j"
+@import "TNVirtualMachineGuestItem.j"
 
 TNArchipelTypeVirtualMachineControl                 = @"archipel:vm:control";
 TNArchipelTypeVirtualMachineDefinition              = @"archipel:vm:definition";
@@ -64,7 +65,8 @@ TNXMLDescHypervisorOpenNebula   = @"one";
 
 TNXMLDescVNCKeymapFR            = @"fr";
 TNXMLDescVNCKeymapEN_US         = @"en-us";
-TNXMLDescVNCKeymaps             = [TNXMLDescVNCKeymapEN_US, TNXMLDescVNCKeymapFR];
+TNXMLDescVNCKeymapDeutch        = @"de";
+TNXMLDescVNCKeymaps             = [TNXMLDescVNCKeymapEN_US, TNXMLDescVNCKeymapFR, TNXMLDescVNCKeymapDeutch];
 
 
 TNXMLDescLifeCycleDestroy           = @"destroy";
@@ -88,7 +90,7 @@ TNXMLDescInputTypeMouse     = @"mouse";
 TNXMLDescInputTypeTablet    = @"tablet";
 TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet];
 
-/*! @defgroup  virtualmachinedefinition Module VirtualMachine Definition
+/*! @defgroup virtualmachinedefinition Module VirtualMachine Definition
     @desc Allow to define virtual machines
 */
 
@@ -98,22 +100,21 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
 @implementation VirtualMachineDefinitionController : TNModule
 {
     @outlet CPButton                buttonAddNic;
-    @outlet CPButton                buttonArchitecture;
     @outlet CPButton                buttonClocks;
+    @outlet CPButton                buttonDefine;
     @outlet CPButton                buttonDelNic;
-    @outlet CPButton                buttonHypervisor;
+    @outlet CPButton                buttonDomainType;
     @outlet CPButton                buttonOnCrash;
     @outlet CPButton                buttonOnPowerOff;
     @outlet CPButton                buttonOnReboot;
-    @outlet CPButton                buttonXMLEditor;
     @outlet CPButton                buttonUndefine;
+    @outlet CPButton                buttonXMLEditor;
     @outlet CPButtonBar             buttonBarControlDrives;
     @outlet CPButtonBar             buttonBarControlNics;
     @outlet CPPopUpButton           buttonBoot;
+    @outlet CPPopUpButton           buttonGuests;
     @outlet CPPopUpButton           buttonInputType;
     @outlet CPPopUpButton           buttonMachines;
-    @outlet TNTextFieldStepper      stepperNumberCPUs;
-    @outlet CPPopUpButton           buttonOSType;
     @outlet CPPopUpButton           buttonPreferencesBoot;
     @outlet CPPopUpButton           buttonPreferencesClockOffset;
     @outlet CPPopUpButton           buttonPreferencesInput;
@@ -131,6 +132,9 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
     @outlet CPTextField             fieldJID;
     @outlet CPTextField             fieldMemory;
     @outlet CPTextField             fieldName;
+    @outlet CPTextField             fieldPreferencesDomainType;
+    @outlet CPTextField             fieldPreferencesGuest;
+    @outlet CPTextField             fieldPreferencesMachine;
     @outlet CPTextField             fieldPreferencesMemory;
     @outlet CPTextField             fieldVNCPassword;
     @outlet CPView                  maskingView;
@@ -140,17 +144,17 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
     @outlet CPView                  viewNicsContainer;
     @outlet CPWindow                windowXMLEditor;
     @outlet LPMultiLineTextField    fieldStringXMLDesc;
+    @outlet TNDriveController       driveController;
+    @outlet TNNetworkController     networkController;
     @outlet TNSwitch                switchACPI;
     @outlet TNSwitch                switchAPIC;
     @outlet TNSwitch                switchHugePages;
     @outlet TNSwitch                switchPAE;
-    @outlet TNSwitch                switchPreferencesACPI;
-    @outlet TNSwitch                switchPreferencesAPIC;
     @outlet TNSwitch                switchPreferencesHugePages;
-    @outlet TNSwitch                switchPreferencesPAE;
-    @outlet TNDriveController       driveController;
-    @outlet TNNetworkController     networkController;
+    @outlet TNTextFieldStepper      stepperNumberCPUs;
 
+    BOOL                            _basicDefinitionEdited;
+    BOOL                            _definitionRecovered;
     CPButton                        _editButtonDrives;
     CPButton                        _editButtonNics;
     CPButton                        _minusButtonDrives;
@@ -160,13 +164,14 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
     CPColor                         _bezelColor;
     CPColor                         _buttonBezelHighlighted;
     CPColor                         _buttonBezelSelected;
-    CPDictionary                    _supportedCapabilities;
+    CPImage                         _imageDefining;
+    CPImage                         _imageEdited;
     CPString                        _stringXMLDesc;
     CPTableView                     _tableDrives;
     CPTableView                     _tableNetworkNics;
     TNTableViewDataSource           _drivesDatasource;
     TNTableViewDataSource           _nicsDatasource;
-
+    CPDictionary                    _currentBasicSettingsValues;
 }
 
 
@@ -197,7 +202,10 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
             [bundle objectForInfoDictionaryKey:@"TNDescDefaultACPI"], @"TNDescDefaultACPI",
             [bundle objectForInfoDictionaryKey:@"TNDescDefaultAPIC"], @"TNDescDefaultAPIC",
             [bundle objectForInfoDictionaryKey:@"TNDescDefaultHugePages"], @"TNDescDefaultHugePages",
-            [bundle objectForInfoDictionaryKey:@"TNDescDefaultInputType"], @"TNDescDefaultInputType"
+            [bundle objectForInfoDictionaryKey:@"TNDescDefaultInputType"], @"TNDescDefaultInputType",
+            [bundle objectForInfoDictionaryKey:@"TNDescDefaultDomainType"], @"TNDescDefaultDomainType",
+            [bundle objectForInfoDictionaryKey:@"TNDescDefaultGuest"], @"TNDescDefaultGuest",
+            [bundle objectForInfoDictionaryKey:@"TNDescDefaultMachine"], @"TNDescDefaultMachine"
     ]];
 
     [fieldJID setSelectable:YES];
@@ -375,8 +383,7 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
 
     // others..
     [buttonBoot removeAllItems];
-    [buttonArchitecture removeAllItems];
-    [buttonHypervisor removeAllItems];
+    [buttonDomainType removeAllItems];
     [buttonVNCKeymap removeAllItems];
     [buttonMachines removeAllItems];
     [buttonOnPowerOff removeAllItems];
@@ -384,6 +391,7 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
     [buttonOnCrash removeAllItems];
     [buttonClocks removeAllItems];
     [buttonInputType removeAllItems];
+    [buttonGuests removeAllItems];
 
     [buttonPreferencesNumberOfCPUs removeAllItems];
     [buttonPreferencesBoot removeAllItems];
@@ -438,20 +446,18 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
 
     [fieldVNCPassword setSecure:YES];
 
-    _supportedCapabilities = [CPDictionary dictionary];
-
     [driveController setTable:_tableDrives];
     [networkController setTable:_tableNetworkNics];
 
     // switch
     [switchAPIC setTarget:self];
-    [switchAPIC setAction:@selector(defineXML:)];
+    [switchAPIC setAction:@selector(makeDefinitionEdited:)];
     [switchACPI setTarget:self];
-    [switchACPI setAction:@selector(defineXML:)];
+    [switchACPI setAction:@selector(makeDefinitionEdited:)];
     [switchPAE setTarget:self];
-    [switchPAE setAction:@selector(defineXML:)];
+    [switchPAE setAction:@selector(makeDefinitionEdited:)];
     [switchHugePages setTarget:self];
-    [switchHugePages setAction:@selector(defineXML:)];
+    [switchHugePages setAction:@selector(makeDefinitionEdited:)];
 
 
     //CPUStepper
@@ -461,7 +467,11 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
     [stepperNumberCPUs setValueWraps:NO];
     [stepperNumberCPUs setAutorepeat:NO];
     [stepperNumberCPUs setTarget:self];
-    [stepperNumberCPUs setAction:@selector(performCPUStepperClick:)];
+    [stepperNumberCPUs setAction:@selector(makeDefinitionEdited:)];
+
+    _imageEdited = [[CPImage alloc] initWithContentsOfFile:[bundle pathForResource:@"edited.png"] size:CPSizeMake(16.0, 16.0)];
+    _imageDefining = [[CPImage alloc] initWithContentsOfFile:[bundle pathForResource:@"spinner.gif"] size:CPSizeMake(16.0, 16.0)];
+    [buttonDefine setEnabled:NO];
 }
 
 
@@ -474,10 +484,16 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
 {
     [super willLoad];
 
+    _definitionRecovered = NO;
+    _currentBasicSettingsValues = [CPDictionary dictionary];
+    [self handleDefinitionEdition:NO];
+
     var center = [CPNotificationCenter defaultCenter];
 
     [center addObserver:self selector:@selector(_didUpdateNickName:) name:TNStropheContactNicknameUpdatedNotification object:_entity];
     [center addObserver:self selector:@selector(_didUpdatePresence:) name:TNStropheContactPresenceUpdatedNotification object:_entity];
+    [center addObserver:self selector:@selector(_didBasicDefinitionEdit:) name:CPControlTextDidChangeNotification object:fieldMemory];
+    [center addObserver:self selector:@selector(_didBasicDefinitionEdit:) name:CPControlTextDidChangeNotification object:fieldVNCPassword];
 
     [self registerSelector:@selector(_didReceivePush:) forPushNotificationType:TNArchipelPushNotificationDefinitition];
 
@@ -531,12 +547,24 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
     return YES;
 }
 
-/*! called when module becomes unvisible
+/*! return YES if module can be hidden
 */
-- (void)willHide
+- (BOOL)shouldHide
 {
-    [super willHide];
+    if (_basicDefinitionEdited)
+    {
+        var alert = [TNAlert alertWithMessage:@"Unsaved changes"
+                                    informative:@"You have made some changes in the virtual machine definition. Would you like save these changes?"
+                                     target:self
+                                     actions:[["Define", @selector(defineXML:)], ["Cancel", nil]]];
+        [alert runModal];
+        return NO;
+    }
+
+    return YES;
 }
+
+
 
 /*! called when users saves preferences
 */
@@ -544,19 +572,19 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
 {
     var defaults = [CPUserDefaults standardUserDefaults];
 
-    [defaults setObject:[fieldPreferencesMemory intValue] forKey:@"TNDescDefaultMemory"];
-    [defaults setObject:[buttonPreferencesNumberOfCPUs title] forKey:@"TNDescDefaultNumberCPU"];
+    [defaults setBool:[switchPreferencesHugePages isOn] forKey:@"TNDescDefaultHugePages"];
     [defaults setObject:[buttonPreferencesBoot title] forKey:@"TNDescDefaultBoot"];
-    [defaults setObject:[buttonPreferencesVNCKeyMap title] forKey:@"TNDescDefaultVNCKeymap"];
-    [defaults setObject:[buttonPreferencesOnPowerOff title] forKey:@"TNDescDefaultOnPowerOff"];
-    [defaults setObject:[buttonPreferencesOnReboot title] forKey:@"TNDescDefaultOnReboot"];
-    [defaults setObject:[buttonPreferencesOnCrash title] forKey:@"TNDescDefaultOnCrash"];
     [defaults setObject:[buttonPreferencesClockOffset title] forKey:@"TNDescDefaultClockOffset"];
     [defaults setObject:[buttonPreferencesInput title] forKey:@"TNDescDefaultInputType"];
-    [defaults setBool:[switchPreferencesPAE isOn] forKey:@"TNDescDefaultPAE"];
-    [defaults setBool:[switchPreferencesACPI isOn] forKey:@"TNDescDefaultACPI"];
-    [defaults setBool:[switchPreferencesAPIC isOn] forKey:@"TNDescDefaultAPIC"];
-    [defaults setBool:[switchPreferencesHugePages isOn] forKey:@"TNDescDefaultHugePages"];
+    [defaults setObject:[buttonPreferencesNumberOfCPUs title] forKey:@"TNDescDefaultNumberCPU"];
+    [defaults setObject:[buttonPreferencesOnCrash title] forKey:@"TNDescDefaultOnCrash"];
+    [defaults setObject:[buttonPreferencesOnPowerOff title] forKey:@"TNDescDefaultOnPowerOff"];
+    [defaults setObject:[buttonPreferencesOnReboot title] forKey:@"TNDescDefaultOnReboot"];
+    [defaults setObject:[buttonPreferencesVNCKeyMap title] forKey:@"TNDescDefaultVNCKeymap"];
+    [defaults setObject:[fieldPreferencesDomainType stringValue] forKey:@"TNDescDefaultDomainType"];
+    [defaults setObject:[fieldPreferencesGuest stringValue] forKey:@"TNDescDefaultGuest"];
+    [defaults setObject:[fieldPreferencesMachine stringValue] forKey:@"TNDescDefaultMachine"];
+    [defaults setObject:[fieldPreferencesMemory intValue] forKey:@"TNDescDefaultMemory"];
 }
 
 /*! called when users gets preferences
@@ -565,18 +593,18 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
 {
     var defaults = [CPUserDefaults standardUserDefaults];
 
-    [fieldPreferencesMemory setIntValue:[defaults objectForKey:@"TNDescDefaultMemory"]];
-    [buttonPreferencesNumberOfCPUs selectItemWithTitle:[defaults objectForKey:@"TNDescDefaultNumberCPU"]];
     [buttonPreferencesBoot selectItemWithTitle:[defaults objectForKey:@"TNDescDefaultBoot"]];
-    [buttonPreferencesVNCKeyMap selectItemWithTitle:[defaults objectForKey:@"TNDescDefaultVNCKeymap"]];
-    [buttonPreferencesOnPowerOff selectItemWithTitle:[defaults objectForKey:@"TNDescDefaultOnPowerOff"]];
-    [buttonPreferencesOnReboot selectItemWithTitle:[defaults objectForKey:@"TNDescDefaultOnReboot"]];
-    [buttonPreferencesOnCrash selectItemWithTitle:[defaults objectForKey:@"TNDescDefaultOnCrash"]];
     [buttonPreferencesClockOffset selectItemWithTitle:[defaults objectForKey:@"TNDescDefaultClockOffset"]];
     [buttonPreferencesInput selectItemWithTitle:[defaults objectForKey:@"TNDescDefaultInputType"]];
-    [switchPreferencesPAE setOn:[defaults boolForKey:@"TNDescDefaultPAE"] animated:YES sendAction:NO];
-    [switchPreferencesACPI setOn:[defaults boolForKey:@"TNDescDefaultACPI"] animated:YES sendAction:NO];
-    [switchPreferencesAPIC setOn:[defaults boolForKey:@"TNDescDefaultAPIC"] animated:YES sendAction:NO];
+    [buttonPreferencesNumberOfCPUs selectItemWithTitle:[defaults objectForKey:@"TNDescDefaultNumberCPU"]];
+    [buttonPreferencesOnCrash selectItemWithTitle:[defaults objectForKey:@"TNDescDefaultOnCrash"]];
+    [buttonPreferencesOnPowerOff selectItemWithTitle:[defaults objectForKey:@"TNDescDefaultOnPowerOff"]];
+    [buttonPreferencesOnReboot selectItemWithTitle:[defaults objectForKey:@"TNDescDefaultOnReboot"]];
+    [buttonPreferencesVNCKeyMap selectItemWithTitle:[defaults objectForKey:@"TNDescDefaultVNCKeymap"]];
+    [fieldPreferencesDomainType setStringValue:[defaults objectForKey:@"TNDescDefaultDomainType"]];
+    [fieldPreferencesGuest setStringValue:[defaults objectForKey:@"TNDescDefaultGuest"]];
+    [fieldPreferencesMachine setIntValue:[defaults objectForKey:@"TNDescDefaultMachine"]];
+    [fieldPreferencesMemory setIntValue:[defaults objectForKey:@"TNDescDefaultMemory"]];
     [switchPreferencesHugePages setOn:[defaults boolForKey:@"TNDescDefaultHugePages"] animated:YES sendAction:NO];
 }
 
@@ -599,32 +627,32 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
 */
 - (void)permissionsChanged
 {
-    [self setControl:fieldMemory enabledAccordingToPermission:@"define"];
-    [self setControl:buttonArchitecture enabledAccordingToPermission:@"define"];
-    [self setControl:stepperNumberCPUs enabledAccordingToPermission:@"define"];
     [self setControl:buttonBoot enabledAccordingToPermission:@"define"];
+    [self setControl:buttonClocks enabledAccordingToPermission:@"define"];
+    [self setControl:buttonDomainType enabledAccordingToPermission:@"define"];
+    [self setControl:buttonGuests enabledAccordingToPermission:@"define"];
+    [self setControl:buttonInputType enabledAccordingToPermission:@"define"];
+    [self setControl:buttonMachines enabledAccordingToPermission:@"define"];
+    [self setControl:buttonOnCrash enabledAccordingToPermission:@"define"];
     [self setControl:buttonOnPowerOff enabledAccordingToPermission:@"define"];
     [self setControl:buttonOnReboot enabledAccordingToPermission:@"define"];
-    [self setControl:buttonOnCrash enabledAccordingToPermission:@"define"];
-    [self setControl:switchPAE enabledAccordingToPermission:@"define"];
+    [self setControl:buttonUndefine enabledAccordingToPermission:@"undefine"];
+    [self setControl:buttonVNCKeymap enabledAccordingToPermission:@"define"];
+    [self setControl:buttonXMLEditor enabledAccordingToPermission:@"define"];
+    [self setControl:fieldMemory enabledAccordingToPermission:@"define"];
+    [self setControl:fieldVNCPassword enabledAccordingToPermission:@"define"];
+    [self setControl:stepperNumberCPUs enabledAccordingToPermission:@"define"];
     [self setControl:switchACPI enabledAccordingToPermission:@"define"];
     [self setControl:switchAPIC enabledAccordingToPermission:@"define"];
     [self setControl:switchHugePages enabledAccordingToPermission:@"define"];
-    [self setControl:buttonClocks enabledAccordingToPermission:@"define"];
-    [self setControl:buttonInputType enabledAccordingToPermission:@"define"];
-    [self setControl:buttonVNCKeymap enabledAccordingToPermission:@"define"];
-    [self setControl:fieldVNCPassword enabledAccordingToPermission:@"define"];
-    [self setControl:buttonHypervisor enabledAccordingToPermission:@"define"];
-    [self setControl:buttonOSType enabledAccordingToPermission:@"define"];
-    [self setControl:buttonMachines enabledAccordingToPermission:@"define"];
-    [self setControl:buttonXMLEditor enabledAccordingToPermission:@"define"];
-    [self setControl:_editButtonNics enabledAccordingToPermission:@"define"];
+    [self setControl:switchPAE enabledAccordingToPermission:@"define"];
     [self setControl:_editButtonDrives enabledAccordingToPermission:@"define"];
-    [self setControl:_plusButtonNics enabledAccordingToPermission:@"define"];
-    [self setControl:_plusButtonDrives enabledAccordingToPermission:@"define"];
-    [self setControl:_minusButtonNics enabledAccordingToPermission:@"define"];
+    [self setControl:_editButtonNics enabledAccordingToPermission:@"define"];
     [self setControl:_minusButtonDrives enabledAccordingToPermission:@"define"];
-    [self setControl:buttonUndefine enabledAccordingToPermission:@"undefine"];
+    [self setControl:_minusButtonNics enabledAccordingToPermission:@"define"];
+    [self setControl:_plusButtonDrives enabledAccordingToPermission:@"define"];
+    [self setControl:_plusButtonNics enabledAccordingToPermission:@"define"];
+
 
     if (![self currentEntityHasPermission:@"define"])
     {
@@ -676,9 +704,90 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
     return YES;
 }
 
+/*! called when a basic definition field has changed
+    @param aNotification the notification
+*/
+- (void)_didBasicDefinitionEdit:(CPNotification)aNotification
+{
+    [self handleDefinitionEdition:YES];
+}
+
 
 #pragma mark -
 #pragma mark Utilities
+
+/*! handle definition changes. If all values match ones stored in
+    _currentBasicSettingsValues, then it will put the GUI in not edited mode
+    @param shouldSetEdited if yes, will try to set GUI in edited mode
+*/
+- (void)handleDefinitionEdition:(BOOL)shouldSetEdited
+{
+    if (shouldSetEdited)
+    {
+        if (!_definitionRecovered)
+            return;
+
+        if ([self doesBasicValueMatchGUI])
+        {
+            _basicDefinitionEdited = NO;
+            [self markGUIAsNotEdited];
+            return;
+        }
+
+
+        _basicDefinitionEdited = YES;
+        [self markGUIAsEdited];
+    }
+    else
+    {
+        _basicDefinitionEdited  = NO;
+        [self markGUIAsNotEdited];
+    }
+}
+
+/*! set the GUI in the mode "something has been edited"
+*/
+- (void)markGUIAsEdited
+{
+    [buttonDefine setEnabled:YES];
+    [buttonDefine setThemeState:CPThemeStateDefault];
+    [buttonDefine setImage:_imageEdited];
+}
+
+/*! set the GUI in the mode "nothing has been edited"
+*/
+- (void)markGUIAsNotEdited
+{
+    [buttonDefine setImage:nil];
+    [buttonDefine setEnabled:NO];
+    [buttonDefine unsetThemeState:CPThemeStateDefault];
+}
+
+/*! return YES if all values of the GUI matches ones stored
+    in _currentBasicSettingsValues
+    @return boolean YES or NO
+*/
+- (BOOL)doesBasicValueMatchGUI
+{
+    return (([_currentBasicSettingsValues objectForKey:@"memory"] == [fieldMemory intValue] * 1024)
+        && [_currentBasicSettingsValues objectForKey:@"vcpu"] == [stepperNumberCPUs intValue]
+        && [_currentBasicSettingsValues objectForKey:@"boot"] == [buttonBoot title]
+        && [_currentBasicSettingsValues objectForKey:@"input"] == [buttonInputType title]
+        && [_currentBasicSettingsValues objectForKey:@"keymap"] == [buttonVNCKeymap title]
+        && (![_currentBasicSettingsValues objectForKey:@"passwd"]
+            || [_currentBasicSettingsValues objectForKey:@"passwd"] == [fieldVNCPassword stringValue])
+        && [_currentBasicSettingsValues objectForKey:@"onCrash"] == [buttonOnCrash title]
+        && [_currentBasicSettingsValues objectForKey:@"onReboot"] == [buttonOnReboot title]
+        && [_currentBasicSettingsValues objectForKey:@"onPowerOff"] == [buttonOnPowerOff title]
+        && [_currentBasicSettingsValues objectForKey:@"hypervisor"] == [buttonDomainType title]
+        && [_currentBasicSettingsValues objectForKey:@"machine"] == [buttonMachines title]
+        && [_currentBasicSettingsValues objectForKey:@"clock"] == [buttonClocks title]
+        && [_currentBasicSettingsValues valueForKey:@"acpi"] == [switchACPI isOn]
+        && [_currentBasicSettingsValues valueForKey:@"apic"] == [switchAPIC isOn]
+        && [_currentBasicSettingsValues valueForKey:@"pae"] == [switchPAE isOn]
+        && [_currentBasicSettingsValues valueForKey:@"hugepages"] == [switchHugePages isOn]
+        && [_currentBasicSettingsValues objectForKey:@"type"] + @" (" + [_currentBasicSettingsValues objectForKey:@"arch"] + @")" == [buttonGuests title])
+}
 
 /*! generate a random Mac address.
     @return CPString containing a random Mac address
@@ -714,11 +823,10 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
         apic        = [defaults boolForKey:@"TNDescDefaultAPIC"],
         input       = [defaults objectForKey:@"TNDescDefaultInputType"];
 
-    _supportedCapabilities = [CPDictionary dictionary];
-
     [stepperNumberCPUs setDoubleValue:cpu];
     [fieldMemory setStringValue:@""];
     [fieldVNCPassword setStringValue:@""];
+    [fieldStringXMLDesc setStringValue:@""];
     [buttonVNCKeymap selectItemWithTitle:vnck];
     [buttonOnPowerOff selectItemWithTitle:opo];
     [buttonOnReboot selectItemWithTitle:or];
@@ -731,9 +839,7 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
     [switchHugePages setOn:((hp == 1) ? YES : NO) animated:YES sendAction:NO];
 
     [buttonMachines removeAllItems];
-    [buttonHypervisor removeAllItems];
-    [buttonArchitecture removeAllItems];
-    [buttonOSType removeAllItems];
+    [buttonDomainType removeAllItems];
 
     [_nicsDatasource removeAllObjects];
     [_drivesDatasource removeAllObjects];
@@ -749,6 +855,21 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
     var XMPPShow = [_entity XMPPShow];
 
     if (XMPPShow != TNStropheContactStatusBusy)
+    {
+        [self displayMaskingView:YES];
+    }
+    else
+    {
+        [self displayMaskingView:NO];
+    }
+}
+
+/*! display or hide the masking view
+    @param shouldDisplay displays if YES, hide if NO
+*/
+- (void)displayMaskingView:(BOOL)shouldDisplay
+{
+    if (shouldDisplay)
     {
         if (![maskingView superview])
         {
@@ -769,6 +890,154 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
     return [anArray containsObject:anHypervisor];
 }
 
+/*! return the emulator value of the current selected guest
+    @return current emulator
+*/
+- (CPString)emulatorOfCurrentGuest
+{
+    var currentGuest        = [[buttonGuests selectedItem] XMLGuest],
+        currentDomainType   = [buttonDomainType title],
+        defaultEmulator     = [[[currentGuest firstChildWithName:@"arch"] firstChildWithName:@"emulator"] text],
+        domains             = [[currentGuest firstChildWithName:@"arch"] childrenWithName:@"domain"];
+
+    for (var i = 0; i < [domains count]; i++)
+    {
+        var domain = [domains objectAtIndex:i];
+
+        if ([domain valueForAttribute:@"type"] == currentDomainType && [domain containsChildrenWithName:@"emulator"])
+            return [[domain firstChildWithName:@"emulator"] text];
+    }
+
+    return defaultEmulator;
+}
+
+/*! get the domain of the current guest with given type
+    @param aType the type of the domain
+    @return the TNXMLNode of the domain with given type
+*/
+- (TNXMLNode)domainOfCurrentGuestWithType:(CPString)aType
+{
+    var currentSelectedGuest    = [buttonGuests selectedItem],
+        capabilities            = [currentSelectedGuest XMLGuest],
+        domains                 = [capabilities childrenWithName:@"domain"];
+
+    for (var i = 0; i < [domains count]; i++)
+    {
+        var domain = [domains objectAtIndex:i];
+        if ([domain valueForAttribute:@"type"] == aType)
+            return domain
+    }
+
+    return nil;
+}
+
+/*! return the capabitilies for guest with given type and architecture
+    @param aType the guest type
+    @param anArch the architecture
+    @return TNXMLNode containing the guest
+*/
+- (TNXMLNode)guestWithType:(CPString)aType architecture:(CPString)anArch
+{
+    var guests = [buttonGuests itemArray];
+
+    for (var i = 0; i < [guests count]; i++)
+    {
+        var guest = [[guests objectAtIndex:i] XMLGuest];
+        if (([[guest firstChildWithName:@"os_type"] text] == aType)
+            && ([[guest firstChildWithName:@"arch"] valueForAttribute:@"name"] == anArch))
+            return guest
+    }
+
+    return nil;
+}
+
+/*! will select the item macthing given type and architecture
+    @param aType the guest type
+    @param anArch the architecture
+*/
+- (void)selectGuestWithType:(CPString)aType architecture:(CPString)anArch
+{
+    var guests = [buttonGuests itemArray];
+
+    for (var i = 0; i < [guests count]; i++)
+    {
+        var guest = [[guests objectAtIndex:i] XMLGuest];
+        if (([[guest firstChildWithName:@"os_type"] text] == aType)
+            && ([[guest firstChildWithName:@"arch"] valueForAttribute:@"name"] == anArch))
+            [buttonGuests selectItemAtIndex:i];
+    }
+}
+
+/*! set the value on controls, according to the selected guest
+*/
+- (void)buildGUIAccordingToCurrentGuest
+{
+    var currentSelectedGuest    = [buttonGuests selectedItem],
+        capabilities            = [currentSelectedGuest XMLGuest],
+        domains                 = [capabilities childrenWithName:@"domain"];
+
+    if (domains && [domains count] > 0)
+    {
+        [buttonDomainType setEnabled:NO];
+        [buttonDomainType removeAllItems];
+
+        for (var i = 0; i < [domains count]; i++)
+        {
+            var domain = [domains objectAtIndex:i];
+            [buttonDomainType addItemWithTitle:[domain valueForAttribute:@"type"]];
+        }
+
+        var defaultDomainType = [[CPUserDefaults standardUserDefaults] objectForKey:@"TNDescDefaultDomainType"];
+        if (defaultDomainType)
+            [buttonDomainType selectItemWithTitle:defaultDomainType];
+        else
+            [buttonDomainType selectItemAtIndex:0];
+        [self setControl:buttonDomainType enabledAccordingToPermission:@"define"];
+        [buttonDomainType setEnabled:YES];
+
+        [buttonMachines setEnabled:NO];
+        [buttonMachines removeAllItems];
+
+        [self updateMachinesAccordingToDomainType:nil];
+    }
+
+    if ([capabilities containsChildrenWithName:@"features"])
+    {
+        var features = [capabilities firstChildWithName:@"features"];
+
+        [switchPAE setEnabled:NO];
+        if ([features containsChildrenWithName:@"nonpae"] && [features containsChildrenWithName:@"pae"])
+            [switchPAE setEnabled:YES];
+        if (![features containsChildrenWithName:@"nonpae"] && [features containsChildrenWithName:@"pae"])
+            [switchPAE setOn:YES animated:NO sendAction:NO];
+        if ([features containsChildrenWithName:@"nonpae"] && ![features containsChildrenWithName:@"pae"])
+            [switchPAE setOn:NO animated:NO sendAction:NO];
+
+        [switchACPI setEnabled:NO];
+        if ([features containsChildrenWithName:@"acpi"])
+        {
+            var on = [[features firstChildWithName:@"acpi"] valueForAttribute:@"default"] == "on" ? YES : NO,
+                toggle = [[features firstChildWithName:@"acpi"] valueForAttribute:@"toggle"] == "yes" ? YES : NO;
+
+            if (toggle)
+                [switchACPI setEnabled:YES];
+            [switchACPI setOn:on animated:NO sendAction:NO];
+        }
+
+        [switchAPIC setEnabled:NO];
+        if ([features containsChildrenWithName:@"apic"])
+        {
+            var on = [[features firstChildWithName:@"apic"] valueForAttribute:@"default"] == "on" ? YES : NO,
+                toggle = [[features firstChildWithName:@"apic"] valueForAttribute:@"toggle"] == "yes" ? YES : NO;
+
+            if (toggle)
+                [switchAPIC setEnabled:YES];
+
+            [switchAPIC setOn:on animated:NO sendAction:NO];
+        }
+    }
+}
+
 
 #pragma mark -
 #pragma mark Actions
@@ -780,6 +1049,14 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
 {
     [windowXMLEditor center];
     [windowXMLEditor makeKeyAndOrderFront:aSender];
+}
+
+/*! make the definition set as edited
+    @param sender the sender of the action
+*/
+- (IBAction)makeDefinitionEdited:(id)aSender
+{
+    [self handleDefinitionEdition:YES];
 }
 
 /*! define XML
@@ -920,14 +1197,52 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
      [self defineXML];
 }
 
-/*! called when CPU stepper is clicked. it will update the text field value and defineXML
+/*! perpare the interface according to the selected guest
+    @param aSender the sender of the action
 */
-- (IBAction)performCPUStepperClick:(id)aSender
+- (IBAction)buildGUIAccordingToCurrentGuest:(id)aSender
 {
-    var cpu = [stepperNumberCPUs doubleValue];
-
-    [self defineXML];
+    [self buildGUIAccordingToCurrentGuest]
 }
+
+- (IBAction)updateMachinesAccordingToDomainType:(id)aSender
+{
+    var currentSelectedGuest    = [buttonGuests selectedItem],
+        capabilities            = [currentSelectedGuest XMLGuest],
+        currentDomain           = [self domainOfCurrentGuestWithType:[buttonDomainType title]],
+        machines                = [currentDomain childrenWithName:@"machine"];
+
+    [buttonMachines removeAllItems];
+    [self setControl:buttonMachines enabledAccordingToPermission:@"define"];
+
+    for (var i = 0; i < [machines count]; i++)
+    {
+        var machine = [machines objectAtIndex:i];
+        [buttonMachines addItemWithTitle:[machine text]];
+    }
+
+    if ([[buttonMachines itemArray] count] == 0)
+    {
+        var defaultMachines = [[capabilities firstChildWithName:@"arch"] childrenWithName:@"machine"];
+        for (var i = 0; i < [defaultMachines count]; i++)
+        {
+            var machine = [defaultMachines objectAtIndex:i];
+            [buttonMachines addItemWithTitle:[machine text]];
+        }
+    }
+
+    if ([[buttonMachines itemArray] count] == 0)
+        [buttonMachines setEnabled:NO];
+
+    var defaultMachine = [[CPUserDefaults standardUserDefaults] objectForKey:@"TNDescDefaultMachine"];
+    if (defaultMachine)
+        [buttonMachines selectItemWithTitle:defaultMachine];
+    else
+        [buttonMachines selectItemAtIndex:0];
+
+    [self handleDefinitionEdition:YES];
+}
+
 
 #pragma mark -
 #pragma mark XMPP Controls
@@ -936,7 +1251,7 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
 */
 - (void)getCapabilities
 {
-    var stanza   = [TNStropheStanza iqWithType:@"get"];
+    var stanza = [TNStropheStanza iqWithType:@"get"];
 
     [stanza addChildWithName:@"query" andAttributes:{"xmlns": TNArchipelTypeVirtualMachineDefinition}];
     [stanza addChildWithName:@"archipel" andAttributes:{
@@ -952,84 +1267,40 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
 {
     if ([aStanza type] == @"result")
     {
-        var guests = [aStanza childrenWithName:@"guest"];
+        [buttonGuests removeAllItems];
 
-        _supportedCapabilities = [CPDictionary dictionary];
+        var host = [aStanza firstChildWithName:@"host"],
+            guests = [aStanza childrenWithName:@"guest"],
+            supportedCapabilities = [CPDictionary dictionary];
+
+        if ([guests count] == 0)
+        {
+            [[TNGrowlCenter defaultCenter] pushNotificationWithTitle:@"Capabilities" message:@"Your hypervisor have not pushed any guest support. For some reason, you can't create domains. Sorry." icon:TNGrowlIconError];
+            [self displayMaskingView:YES];
+        }
+
+        [supportedCapabilities setObject:host forKey:@"host"];
+        [supportedCapabilities setObject:[CPArray array] forKey:@"guests"];
 
         for (var i = 0; i < [guests count]; i++)
         {
-            var guest               = [guests objectAtIndex:i],
-                osType              = [[guest firstChildWithName:@"os_type"] text],
-                arch                = [[guest firstChildWithName:@"arch"] valueForAttribute:@"name"],
-                features            = [guest firstChildWithName:@"features"],
-                supportNonPAE       = NO,
-                supportPAE          = NO,
-                supportACPI         = NO,
-                supportAPIC         = NO,
-                domains             = [guest childrenWithName:@"domain"],
-                domainsDict         = [CPDictionary dictionary],
-                defaultMachines     = [CPArray array],
-                defaultEmulator     = [[[guest firstChildWithName:@"arch"] firstChildWithName:@"emulator"] text],
-                defaultMachinesNode = [[guest firstChildWithName:@"arch"] ownChildrenWithName:@"machine"];
+            var guestItem   = [[TNVirtualMachineGuestItem alloc] init],
+                guest       = [guests objectAtIndex:i],
+                osType      = [[guest firstChildWithName:@"os_type"] text],
+                arch        = [[guest firstChildWithName:@"arch"] valueForAttribute:@"name"];
 
-            for (var j = 0; j < [defaultMachinesNode count]; j++)
-            {
-                var machine = [defaultMachinesNode objectAtIndex:j];
+            [guestItem setXMLGuest:guest];
+            [guestItem setTitle:osType + @" (" + arch + @")"];
+            [buttonGuests addItem:guestItem];
 
-                if (![defaultMachinesNode containsObject:[machine text]])
-                    [defaultMachines addObject:[machine text]];
-            }
-
-            if (domains)
-            {
-                for (var j = 0; j < [domains count]; j++)
-                {
-                    var domain          = [domains objectAtIndex:j],
-                        machines        = [CPArray array],
-                        machinesNode    = [domain childrenWithName:@"machine"],
-                        domEmulator     = nil,
-                        dict            = [CPDictionary dictionary];
-
-                    if ([domain containsChildrenWithName:@"emulator"])
-                        domEmulator = [[domain firstChildWithName:@"emulator"] text];
-                    else
-                        domEmulator = defaultEmulator;
-
-                    if ([machinesNode count] == 0)
-                        machines = defaultMachines;
-                    else
-                        for (var k = 0; k < [machinesNode count]; k++)
-                        {
-                            var machine = [machinesNode objectAtIndex:k];
-
-                            [machines addObject:[machine text]];
-                        }
-
-                    [dict setObject:domEmulator forKey:@"emulator"];
-                    [dict setObject:machines forKey:@"machines"];
-
-                    [domainsDict setObject:dict forKey:[domain valueForAttribute:@"type"]]
-                }
-            }
-
-            if (features)
-            {
-                supportNonPAE   = [features containsChildrenWithName:@"pae"];
-                supportPAE      = [features containsChildrenWithName:@"nonpae"];
-                supportACPI     = [features containsChildrenWithName:@"acpi"];
-                supportAPIC     = [features containsChildrenWithName:@"apic"];
-            }
-
-            var cap = [CPDictionary dictionaryWithObjectsAndKeys:   supportPAE,         @"PAE",
-                                                                    supportNonPAE,      @"NONPAE",
-                                                                    supportAPIC,        @"APIC",
-                                                                    supportACPI,        @"ACPI",
-                                                                    domainsDict,        @"domains",
-                                                                    osType,             @"OSType"];
-
-            [_supportedCapabilities setObject:cap forKey:arch];
+            [[supportedCapabilities objectForKey:@"guests"] addObject:guest];
         }
-        CPLog.trace(_supportedCapabilities);
+
+        var defaultGuest = [[CPUserDefaults standardUserDefaults] objectForKey:@"TNDescDefaultGuest"];
+        if (defaultGuest)
+            [buttonGuests selectItemWithTitle:defaultGuest];
+
+        CPLog.trace(supportedCapabilities);
         [self getXMLDesc];
     }
     else
@@ -1039,6 +1310,7 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
 
     return NO;
 }
+
 
 /*! ask hypervisor for its description
 */
@@ -1058,346 +1330,266 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
 */
 - (BOOL)_didReceiveXMLDesc:(TNStropheStanza)aStanza
 {
-    if ([aStanza type] == @"result")
+    var defaults = [CPUserDefaults standardUserDefaults];
+
+    if ([aStanza type] == @"error")
     {
-        var domain          = [aStanza firstChildWithName:@"domain"],
-            hypervisor      = [domain valueForAttribute:@"type"],
-            memory          = [[domain firstChildWithName:@"currentMemory"] text],
-            memoryBacking   = [domain firstChildWithName:@"memoryBacking"],
-            arch            = [[[domain firstChildWithName:@"os"] firstChildWithName:@"type"] valueForAttribute:@"arch"],
-            machine         = [[[domain firstChildWithName:@"os"] firstChildWithName:@"type"] valueForAttribute:@"machine"],
-            vcpu            = [[domain firstChildWithName:@"vcpu"] text],
-            boot            = [[domain firstChildWithName:@"boot"] valueForAttribute:@"dev"],
-            interfaces      = [domain childrenWithName:@"interface"],
-            disks           = [domain childrenWithName:@"disk"],
-            graphics        = [domain childrenWithName:@"graphics"],
-            onPowerOff      = [domain firstChildWithName:@"on_poweroff"],
-            onReboot        = [domain firstChildWithName:@"on_reboot"],
-            onCrash         = [domain firstChildWithName:@"on_crash"],
-            features        = [domain firstChildWithName:@"features"],
-            clock           = [domain firstChildWithName:@"clock"],
-            input           = [[domain firstChildWithName:@"input"] valueForAttribute:@"type"],
-            capabilities    = [_supportedCapabilities objectForKey:arch],
-            shouldRefresh   = NO;
+        if ([[[aStanza firstChildWithName:@"error"] firstChildWithName:@"text"] text] != "not-defined")
+            [self handleIqErrorFromStanza:aStanza];
 
-        //////////////////////////////////////////
-        // BASIC SETTINGS
-        //////////////////////////////////////////
+        [self buildGUIAccordingToCurrentGuest];
+        _definitionRecovered = YES;
+        [self handleDefinitionEdition:NO];
 
-        // Memory
-        [fieldMemory setStringValue:(parseInt(memory) / 1024)];
+        return;
+    }
 
-        // CPUs
-        [stepperNumberCPUs setDoubleValue:[vcpu intValue]];
+    var domain          = [aStanza firstChildWithName:@"domain"],
+        hypervisor      = [domain valueForAttribute:@"type"],
+        memory          = [[domain firstChildWithName:@"currentMemory"] text],
+        memoryBacking   = [domain firstChildWithName:@"memoryBacking"],
+        type            = [[[domain firstChildWithName:@"os"] firstChildWithName:@"type"] text],
+        arch            = [[[domain firstChildWithName:@"os"] firstChildWithName:@"type"] valueForAttribute:@"arch"],
+        machine         = [[[domain firstChildWithName:@"os"] firstChildWithName:@"type"] valueForAttribute:@"machine"],
+        vcpu            = [[domain firstChildWithName:@"vcpu"] text],
+        boot            = [[domain firstChildWithName:@"boot"] valueForAttribute:@"dev"],
+        interfaces      = [domain childrenWithName:@"interface"],
+        disks           = [domain childrenWithName:@"disk"],
+        graphics        = [domain childrenWithName:@"graphics"],
+        onPowerOff      = [domain firstChildWithName:@"on_poweroff"],
+        onReboot        = [domain firstChildWithName:@"on_reboot"],
+        onCrash         = [domain firstChildWithName:@"on_crash"],
+        features        = [domain firstChildWithName:@"features"],
+        clock           = [domain firstChildWithName:@"clock"],
+        input           = [[domain firstChildWithName:@"input"] valueForAttribute:@"type"],
+        capabilities    = [self guestWithType:type architecture:arch];
 
-        // button architecture
-        [buttonArchitecture removeAllItems];
-        [buttonArchitecture addItemsWithTitles:[_supportedCapabilities allKeys]];
-        if ([buttonArchitecture indexOfItemWithTitle:arch] == -1)
+    [self selectGuestWithType:type architecture:arch];
+    [self buildGUIAccordingToCurrentGuest];
+
+    // store current values for matching edition
+    [_currentBasicSettingsValues setObject:memory forKey:@"memory"];
+    [_currentBasicSettingsValues setObject:hypervisor forKey:@"hypervisor"];
+    [_currentBasicSettingsValues setObject:type forKey:@"type"];
+    [_currentBasicSettingsValues setObject:arch forKey:@"arch"];
+    [_currentBasicSettingsValues setObject:machine forKey:@"machine"];
+    [_currentBasicSettingsValues setObject:vcpu forKey:@"vcpu"];
+    [_currentBasicSettingsValues setObject:boot forKey:@"boot"];
+    [_currentBasicSettingsValues setObject:[onPowerOff text] forKey:@"onPowerOff"];
+    [_currentBasicSettingsValues setObject:[onReboot text] forKey:@"onReboot"];
+    [_currentBasicSettingsValues setObject:[onCrash text] forKey:@"onCrash"];
+    [_currentBasicSettingsValues setObject:[clock valueForAttribute:@"offset"] forKey:@"clock"];
+    [_currentBasicSettingsValues setObject:input forKey:@"input"];
+
+    // BASIC SETTINGS
+
+    // button domainType
+    [buttonDomainType selectItemWithTitle:hypervisor];
+
+    // button Machine
+    [self updateMachinesAccordingToDomainType:nil];
+    if (machine && machine != "")
+        [buttonMachines selectItemWithTitle:machine];
+
+    // Memory
+    [fieldMemory setStringValue:(parseInt(memory) / 1024)];
+
+    // CPUs
+    [stepperNumberCPUs setDoubleValue:[vcpu intValue]];
+
+    // button BOOT
+    if ([self isHypervisor:hypervisor inList:[TNXMLDescHypervisorKVM, TNXMLDescHypervisorQemu, TNXMLDescHypervisorKQemu]])
+    {
+        [self setControl:buttonBoot enabledAccordingToPermission:@"define"];
+
+        if (boot == "cdrom")
+            [buttonBoot selectItemWithTitle:TNXMLDescBootCDROM];
+        else
+            [buttonBoot selectItemWithTitle:TNXMLDescBootHardDrive];
+    }
+    else
+    {
+        [self setControl:buttonBoot enabledAccordingToPermission:@"define"];
+    }
+
+
+    // LIFECYCLE
+
+    // power Off
+    if (onPowerOff)
+        [buttonOnPowerOff selectItemWithTitle:[onPowerOff text]];
+    else
+        [buttonOnPowerOff selectItemWithTitle:@"Destroy"];
+
+    // reboot
+    if (onReboot)
+        [buttonOnReboot selectItemWithTitle:[onReboot text]];
+    else
+        [buttonOnPowerOff selectItemWithTitle:@"Reboot"];
+
+    // crash
+    if (onCrash)
+        [buttonOnCrash selectItemWithTitle:[onCrash text]];
+    else
+        [buttonOnPowerOff selectItemWithTitle:@"Reboot"];
+
+
+    // CONTROLS
+
+    // graphics
+    if ([self isHypervisor:hypervisor inList:[TNXMLDescHypervisorKVM, TNXMLDescHypervisorQemu, TNXMLDescHypervisorKQemu]])
+    {
+        [self setControl:fieldVNCPassword enabledAccordingToPermission:@"define"];
+        [self setControl:buttonVNCKeymap enabledAccordingToPermission:@"define"];
+
+        for (var i = 0; i < [graphics count]; i++)
         {
-            [buttonArchitecture selectItemAtIndex:0];
-            //shouldRefresh = YES;
-        }
-        else
-            [buttonArchitecture selectItemWithTitle:arch];
+            var graphic = [graphics objectAtIndex:i];
 
-        // button BOOT
-        if ([self isHypervisor:hypervisor inList:[TNXMLDescHypervisorKVM, TNXMLDescHypervisorQemu, TNXMLDescHypervisorKQemu]])
-        {
-            [self setControl:buttonBoot enabledAccordingToPermission:@"define"];
-
-            if (boot == "cdrom")
-                [buttonBoot selectItemWithTitle:TNXMLDescBootCDROM];
-            else
-                [buttonBoot selectItemWithTitle:TNXMLDescBootHardDrive];
-        }
-        else
-        {
-            [self setControl:buttonBoot enabledAccordingToPermission:@"define"];
-        }
-
-
-        //////////////////////////////////////////
-        // LIFECYCLE
-        //////////////////////////////////////////
-
-        // power Off
-        if (onPowerOff)
-            [buttonOnPowerOff selectItemWithTitle:[onPowerOff text]];
-        else
-            [buttonOnPowerOff selectItemWithTitle:@"Default"];
-
-        // reboot
-        if (onReboot)
-            [buttonOnReboot selectItemWithTitle:[onReboot text]];
-        else
-            [buttonOnPowerOff selectItemWithTitle:@"Default"];
-
-        // crash
-        if (onCrash)
-            [buttonOnCrash selectItemWithTitle:[onCrash text]];
-        else
-            [buttonOnPowerOff selectItemWithTitle:@"Default"];
-
-
-        //////////////////////////////////////////
-        // CONTROLS
-        //////////////////////////////////////////
-
-        if ([self isHypervisor:hypervisor inList:[TNXMLDescHypervisorKVM, TNXMLDescHypervisorQemu, TNXMLDescHypervisorKQemu]])
-        {
-            [self setControl:fieldVNCPassword enabledAccordingToPermission:@"define"];
-            [self setControl:buttonVNCKeymap enabledAccordingToPermission:@"define"];
-
-            for (var i = 0; i < [graphics count]; i++)
+            if ([graphic valueForAttribute:@"type"] == "vnc")
             {
-                var graphic = [graphics objectAtIndex:i];
+                var keymap = [graphic valueForAttribute:@"keymap"],
+                    passwd = [graphic valueForAttribute:@"passwd"];
 
-                if ([graphic valueForAttribute:@"type"] == "vnc")
+                if (keymap)
                 {
-                    var keymap = [graphic valueForAttribute:@"keymap"];
+                    [_currentBasicSettingsValues setObject:keymap forKey:@"keymap"];
+                    [buttonVNCKeymap selectItemWithTitle:keymap];
+                }
 
-                    if (keymap)
-                        [buttonVNCKeymap selectItemWithTitle:keymap];
-
-                    var passwd = [graphic valueForAttribute:@"passwd"];
-
-                    if (passwd)
-                        [fieldVNCPassword setStringValue:passwd];
+                if (passwd)
+                {
+                    [_currentBasicSettingsValues setObject:passwd forKey:@"passwd"];
+                    [fieldVNCPassword setStringValue:passwd];
                 }
             }
         }
-        else
-        {
-            [fieldVNCPassword setEnabled:NO];
-            [buttonVNCKeymap setEnabled:NO];
-        }
-
-        //input type
-        if ((hypervisor == TNXMLDescHypervisorKVM)
-            || (hypervisor == TNXMLDescHypervisorQemu)
-            || (hypervisor == TNXMLDescHypervisorKQemu))
-        {
-            [self setControl:buttonInputType enabledAccordingToPermission:@"define"];
-
-            [buttonInputType selectItemWithTitle:input];
-        }
-        else
-        {
-            [buttonInputType setEnabled:NO];
-        }
-
-
-        //////////////////////////////////////////
-        // HYPERVISOR
-        //////////////////////////////////////////
-
-        // button Hypervisor
-        [buttonHypervisor removeAllItems];
-        [buttonHypervisor addItemsWithTitles:[[capabilities objectForKey:@"domains"] allKeys]];
-        if ([buttonHypervisor indexOfItemWithTitle:hypervisor] == -1)
-        {
-            [buttonHypervisor selectItemAtIndex:0];
-            //shouldRefresh = YES;
-        }
-        else
-            [buttonHypervisor selectItemWithTitle:hypervisor];
-
-        // button Machine
-        [buttonMachines removeAllItems];
-        if ([[[capabilities objectForKey:@"domains"] objectForKey:hypervisor] containsKey:@"machines"] &&
-            [[[[capabilities objectForKey:@"domains"] objectForKey:hypervisor] objectForKey:@"machines"] count])
-        {
-            [self setControl:buttonMachines enabledAccordingToPermission:@"define"];
-            [buttonMachines addItemsWithTitles:[[[capabilities objectForKey:@"domains"] objectForKey:hypervisor] objectForKey:@"machines"]];
-            if ([buttonMachines indexOfItemWithTitle:machine] == -1)
-            {
-                [buttonMachines selectItemAtIndex:0];
-                //shouldRefresh = YES;
-            }
-            else
-            {
-                [buttonMachines selectItemWithTitle:machine];
-            }
-        }
-        else
-            [buttonMachines setEnabled:NO];
-
-        // button OStype
-        [buttonOSType removeAllItems];
-        [buttonOSType addItemWithTitle:[capabilities objectForKey:@"OSType"]];
-
-
-        //////////////////////////////////////////
-        // ADVANCED FEATURES
-        //////////////////////////////////////////
-
-        // APIC
-        [switchAPIC setEnabled:NO];
-        [switchAPIC setOn:NO animated:YES sendAction:NO];
-        if ([capabilities containsKey:@"APIC"] && [capabilities objectForKey:@"APIC"])
-        {
-            [self setControl:switchAPIC enabledAccordingToPermission:@"define"];
-
-            if (features && [features containsChildrenWithName:TNXMLDescFeatureAPIC])
-                [switchAPIC setOn:YES animated:YES sendAction:NO];
-        }
-
-        // ACPI
-        [switchACPI setEnabled:NO];
-        [switchACPI setOn:NO animated:YES sendAction:NO];
-        if ([capabilities containsKey:@"ACPI"] && [capabilities objectForKey:@"ACPI"])
-        {
-            [self setControl:switchACPI enabledAccordingToPermission:@"define"];
-
-            if (features && [features containsChildrenWithName:TNXMLDescFeatureACPI])
-                [switchACPI setOn:YES animated:YES sendAction:NO];
-        }
-
-        // PAE
-        [switchPAE setEnabled:NO];
-        [switchPAE setOn:NO animated:YES sendAction:NO];
-
-        if ([capabilities containsKey:@"PAE"] && ![capabilities containsKey:@"NONPAE"])
-        {
-            [switchPAE setOn:YES animated:YES sendAction:NO];
-        }
-        else if (![capabilities containsKey:@"PAE"] && [capabilities containsKey:@"NONPAE"])
-        {
-            [switchPAE setOn:NO animated:YES sendAction:NO];
-        }
-        else if ([capabilities containsKey:@"PAE"] && [capabilities objectForKey:@"PAE"]
-            && [capabilities containsKey:@"NONPAE"] && [capabilities objectForKey:@"NONPAE"])
-        {
-            [self setControl:switchPAE enabledAccordingToPermission:@"define"];
-            if (features && [features containsChildrenWithName:TNXMLDescFeaturePAE])
-                [switchPAE setOn:YES animated:YES sendAction:NO];
-        }
-
-        // huge pages
-        [switchHugePages setOn:NO animated:YES sendAction:NO];
-        if (memoryBacking)
-        {
-            if ([memoryBacking containsChildrenWithName:@"hugepages"])
-                [switchHugePages setOn:YES animated:YES sendAction:NO];
-        }
-
-        //clock
-        if ([self isHypervisor:hypervisor inList:[TNXMLDescHypervisorKVM, TNXMLDescHypervisorQemu, TNXMLDescHypervisorKQemu, TNXMLDescHypervisorLXC]])
-        {
-            [self setControl:buttonClocks enabledAccordingToPermission:@"define"];
-
-            if (clock)
-                [buttonClocks selectItemWithTitle:[clock valueForAttribute:@"offset"]];
-        }
-        else
-            [buttonClocks setEnabled:NO];
-
-
-        //////////////////////////////////////////
-        // MANUAL
-        //////////////////////////////////////////
-
-        // field XML
-        _stringXMLDesc  = [[aStanza firstChildWithName:@"domain"] stringValue];
-        if (_stringXMLDesc)
-        {
-            _stringXMLDesc      = _stringXMLDesc.replace("\n  \n", "\n");
-            _stringXMLDesc      = _stringXMLDesc.replace("xmlns='http://www.gajim.org/xmlns/undeclared' ", "");
-            [fieldStringXMLDesc setStringValue:_stringXMLDesc];
-        }
-
-
-        //////////////////////////////////////////
-        // DRIVES
-        //////////////////////////////////////////
-        [_drivesDatasource removeAllObjects];
-        for (var i = 0; i < [disks count]; i++)
-        {
-            var currentDisk = [disks objectAtIndex:i],
-                iType       = [currentDisk valueForAttribute:@"type"],
-                iDevice     = [currentDisk valueForAttribute:@"device"],
-                iTarget     = [[currentDisk firstChildWithName:@"target"] valueForAttribute:@"dev"],
-                iBus        = [[currentDisk firstChildWithName:@"target"] valueForAttribute:@"bus"],
-                iSource     = (iType == @"file") ? [[currentDisk firstChildWithName:@"source"] valueForAttribute:@"file"] : [[currentDisk firstChildWithName:@"source"] valueForAttribute:@"dev"],
-                newDrive    =  [TNDrive driveWithType:iType device:iDevice source:iSource target:iTarget bus:iBus];
-
-            [_drivesDatasource addObject:newDrive];
-        }
-
-        [_tableDrives reloadData];
-
-        // THE dirty temporary solution (instead of beer)
-        setTimeout(function(){[_tableDrives setNeedsLayout]; [_tableDrives setNeedsDisplay:YES]}, 1000);
-
-
-        //////////////////////////////////////////
-        // NICS
-        //////////////////////////////////////////
-        [_nicsDatasource removeAllObjects];
-        for (var i = 0; i < [interfaces count]; i++)
-        {
-            var currentInterface    = [interfaces objectAtIndex:i],
-                iType               = [currentInterface valueForAttribute:@"type"],
-                iModel              = ([currentInterface firstChildWithName:@"model"]) ? [[currentInterface firstChildWithName:@"model"] valueForAttribute:@"type"] : @"pcnet",
-                iMac                = [[currentInterface firstChildWithName:@"mac"] valueForAttribute:@"address"],
-                iSource             = (iType == "bridge") ? [[currentInterface firstChildWithName:@"source"] valueForAttribute:@"bridge"] : [[currentInterface firstChildWithName:@"source"] valueForAttribute:@"network"],
-                newNic              = [TNNetworkInterface networkInterfaceWithType:iType model:iModel mac:iMac source:iSource];
-
-            [_nicsDatasource addObject:newNic];
-        }
-        [_tableNetworkNics reloadData];
-
-        // if automatic changes has been done while changing arch, hypervisor etc,
-        // redefine virtual machine
-        if (shouldRefresh)
-            [self defineXML:nil];
     }
-    else if ([aStanza type] == @"error")
+    else
     {
-        if ([[[aStanza firstChildWithName:@"error"] firstChildWithName:@"text"] text] == "not-defined")
+        [fieldVNCPassword setEnabled:NO];
+        [buttonVNCKeymap setEnabled:NO];
+    }
+
+    //input type
+    if ([self isHypervisor:hypervisor inList:[TNXMLDescHypervisorKVM, TNXMLDescHypervisorQemu, TNXMLDescHypervisorKQemu]])
+    {
+        [self setControl:buttonInputType enabledAccordingToPermission:@"define"];
+
+        [buttonInputType selectItemWithTitle:input];
+    }
+    else
+    {
+        [buttonInputType setEnabled:NO];
+    }
+
+
+    // ADVANCED FEATURES
+
+    // APIC
+    [_currentBasicSettingsValues setValue:NO forKey:@"apic"];
+    [switchAPIC setOn:NO animated:NO sendAction:NO];
+    if ([features containsChildrenWithName:@"apic"])
+    {
+        [_currentBasicSettingsValues setValue:YES forKey:@"apic"];
+        [switchAPIC setOn:YES animated:NO sendAction:NO];
+    }
+
+    // ACPI
+    [_currentBasicSettingsValues setValue:NO forKey:@"acpi"];
+    [switchACPI setOn:NO animated:NO sendAction:NO];
+    if ([features containsChildrenWithName:@"acpi"])
+    {
+        [_currentBasicSettingsValues setValue:YES forKey:@"acpi"];
+        [switchACPI setOn:YES animated:NO sendAction:NO];
+    }
+
+    // PAE
+    [_currentBasicSettingsValues setValue:NO forKey:@"pae"];
+    [switchPAE setOn:NO animated:NO sendAction:NO];
+    if ([features containsChildrenWithName:@"pae"])
+    {
+        [_currentBasicSettingsValues setValue:YES forKey:@"pae"];
+        [switchPAE setOn:YES animated:NO sendAction:NO];
+    }
+
+    // huge pages
+    [_currentBasicSettingsValues setValue:NO forKey:@"hugepages"];
+    [switchHugePages setOn:NO animated:NO sendAction:NO];
+    if (memoryBacking)
+    {
+        if ([memoryBacking containsChildrenWithName:@"hugepages"])
         {
-            [switchAPIC setEnabled:NO];
-            [switchACPI setEnabled:NO];
-            [switchPAE setEnabled:NO];
-
-            [buttonArchitecture removeAllItems];
-            [buttonArchitecture addItemsWithTitles:[_supportedCapabilities allKeys]];
-            [buttonArchitecture selectItemAtIndex:0];
-
-            var capabilities = [_supportedCapabilities objectForKey:[buttonArchitecture title]];
-
-            [buttonOSType removeAllItems];
-            [buttonOSType addItemWithTitle:[capabilities objectForKey:@"OSType"]];
-            [buttonOSType selectItemAtIndex:0];
-
-            CPLog.trace(capabilities);
-
-            [buttonHypervisor setEnabled:NO];
-            [buttonHypervisor removeAllItems];
-
-            if ([capabilities containsKey:@"domains"])
-            {
-                [buttonHypervisor addItemsWithTitles:[[capabilities objectForKey:@"domains"] allKeys]];
-                [buttonHypervisor selectItemAtIndex:0];
-                [self setControl:buttonHypervisor enabledAccordingToPermission:@"define"];
-            }
-
-            [buttonMachines setEnabled:NO];
-            [buttonMachines removeAllItems];
-            if ([capabilities containsKey:@"domains"] && [[[[capabilities objectForKey:@"domains"]  objectForKey:[buttonHypervisor title]] objectForKey:@"machines"] count] > 0)
-            {
-                [buttonMachines addItemsWithTitles:[[[capabilities objectForKey:@"domains"] objectForKey:[buttonHypervisor title]] objectForKey:@"machines"]];
-                [buttonMachines selectItemAtIndex:0];
-                [self setControl:buttonMachines enabledAccordingToPermission:@"define"];
-            }
-        }
-        else
-        {
-            [self handleIqErrorFromStanza:aStanza];
+            [_currentBasicSettingsValues setValue:YES forKey:@"hugepages"];
+            [switchHugePages setOn:YES animated:NO sendAction:NO];
         }
     }
 
+    //clock
+    if ([self isHypervisor:hypervisor inList:[TNXMLDescHypervisorKVM, TNXMLDescHypervisorQemu, TNXMLDescHypervisorKQemu, TNXMLDescHypervisorLXC]])
+    {
+        [self setControl:buttonClocks enabledAccordingToPermission:@"define"];
+
+        if (clock)
+            [buttonClocks selectItemWithTitle:[clock valueForAttribute:@"offset"]];
+    }
+    else
+        [buttonClocks setEnabled:NO];
+
+
+    // MANUAL
+
+    // field XML
+    _stringXMLDesc  = [[aStanza firstChildWithName:@"domain"] stringValue];
+    [fieldStringXMLDesc setStringValue:@""];
+    if (_stringXMLDesc)
+    {
+        _stringXMLDesc  = _stringXMLDesc.replace("\n  \n", "\n");
+        _stringXMLDesc  = _stringXMLDesc.replace("xmlns='http://www.gajim.org/xmlns/undeclared' ", "");
+        [fieldStringXMLDesc setStringValue:_stringXMLDesc];
+    }
+
+
+    // DRIVES
+
+    [_drivesDatasource removeAllObjects];
+    for (var i = 0; i < [disks count]; i++)
+    {
+        var currentDisk = [disks objectAtIndex:i],
+            iType       = [currentDisk valueForAttribute:@"type"],
+            iDevice     = [currentDisk valueForAttribute:@"device"],
+            iTarget     = [[currentDisk firstChildWithName:@"target"] valueForAttribute:@"dev"],
+            iBus        = [[currentDisk firstChildWithName:@"target"] valueForAttribute:@"bus"],
+            iSource     = (iType == @"file") ? [[currentDisk firstChildWithName:@"source"] valueForAttribute:@"file"] : [[currentDisk firstChildWithName:@"source"] valueForAttribute:@"dev"],
+            newDrive    =  [TNDrive driveWithType:iType device:iDevice source:iSource target:iTarget bus:iBus];
+
+        [_drivesDatasource addObject:newDrive];
+    }
+
+    [_tableDrives reloadData];
+
+    // THE dirty temporary solution
+    setTimeout(function(){[_tableDrives setNeedsLayout]; [_tableDrives setNeedsDisplay:YES]}, 1000);
+
+
+    // NICS
+    [_nicsDatasource removeAllObjects];
+    for (var i = 0; i < [interfaces count]; i++)
+    {
+        var currentInterface    = [interfaces objectAtIndex:i],
+            iType               = [currentInterface valueForAttribute:@"type"],
+            iModel              = ([currentInterface firstChildWithName:@"model"]) ? [[currentInterface firstChildWithName:@"model"] valueForAttribute:@"type"] : @"pcnet",
+            iMac                = [[currentInterface firstChildWithName:@"mac"] valueForAttribute:@"address"],
+            iSource             = (iType == "bridge") ? [[currentInterface firstChildWithName:@"source"] valueForAttribute:@"bridge"] : [[currentInterface firstChildWithName:@"source"] valueForAttribute:@"network"],
+            newNic              = [TNNetworkInterface networkInterfaceWithType:iType model:iModel mac:iMac source:iSource];
+
+        [_nicsDatasource addObject:newNic];
+    }
+
+    [_tableNetworkNics reloadData];
+
+    _definitionRecovered = YES;
+    [self handleDefinitionEdition:NO];
     return NO;
 }
 
@@ -1406,27 +1598,25 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
 - (void)defineXML
 {
     var uid             = [[[TNStropheIMClient defaultClient] connection] getUniqueId],
+        capabilities    = [[buttonGuests selectedItem] XMLGuest],
         memory          = "" + [fieldMemory intValue] * 1024 + "",
-        arch            = [buttonArchitecture title],
+        arch            = [[capabilities firstChildWithName:@"arch"] valueForAttribute:@"name"],
         machine         = [buttonMachines title],
-        hypervisor      = [buttonHypervisor title],
+        hypervisor      = [buttonDomainType title],
         nCPUs           = [stepperNumberCPUs doubleValue],
         boot            = [buttonBoot title],
         nics            = [_nicsDatasource content],
         drives          = [_drivesDatasource content],
-        OSType          = [buttonOSType title],
+        OSType          = [[capabilities firstChildWithName:@"os_type"] text],
         VNCKeymap       = [buttonVNCKeymap title],
         VNCPassword     = [fieldVNCPassword stringValue],
-        capabilities    = [_supportedCapabilities objectForKey:arch],
         stanza          = [TNStropheStanza iqWithAttributes:{"to": [[_entity JID] full], "id": uid, "type": "set"}];
 
     [stanza addChildWithName:@"query" andAttributes:{"xmlns": TNArchipelTypeVirtualMachineDefinition}];
     [stanza addChildWithName:@"archipel" andAttributes:{
         "action": TNArchipelTypeVirtualMachineDefinitionDefine}];
 
-    //////////////////////////////////////////
     // COMMON INFORMATION
-    //////////////////////////////////////////
 
     [stanza addChildWithName:@"domain" andAttributes:{"type": hypervisor}];
 
@@ -1445,11 +1635,12 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
     [stanza addTextNode:memory];
     [stanza up];
 
-    // currenrt memory
+    // current memory
     [stanza addChildWithName:@"currentMemory"];
     [stanza addTextNode:memory];
     [stanza up];
 
+    // huge pages
     if ([switchHugePages isOn])
     {
         [stanza addChildWithName:@"memoryBacking"]
@@ -1463,36 +1654,62 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
     [stanza addTextNode:@"" + nCPUs + @""];
     [stanza up];
 
-    //////////////////////////////////////////
+
     // OS PART
-    //////////////////////////////////////////
+
     [stanza addChildWithName:@"os"];
 
-    if ([self isHypervisor:hypervisor inList:[TNXMLDescHypervisorLXC]])
+    switch (hypervisor)
     {
-        [stanza addChildWithName:@"type"];
-        [stanza addTextNode:OSType];
-        [stanza up];
+        case TNXMLDescHypervisorLXC:
+            [stanza addChildWithName:@"type"];
+            [stanza addTextNode:OSType];
+            [stanza up];
 
-        // TODO
-        [stanza addChildWithName:@"init"];
-        [stanza addTextNode:@"/bin/sh"];
-        [stanza up];
+            // TODO
+            [stanza addChildWithName:@"init"];
+            [stanza addTextNode:@"/bin/sh"];
+            [stanza up];
+            break;
+
+        case TNXMLDescHypervisorXen:
+            if (machine && machine != "")
+                [stanza addChildWithName:@"type" andAttributes:{"machine": machine, "arch": arch}];
+            else
+                [stanza addChildWithName:@"type" andAttributes:{"arch": arch}];
+
+            [stanza addTextNode:(OSType == "hvm" ? OSType : @"linux")]; // TODO: improve this
+            [stanza up];
+
+            // loader
+            if ([[capabilities firstChildWithName:@"arch"] containsChildrenWithName:@"loader"])
+            {
+                [stanza addChildWithName:@"loader"];
+                [stanza addTextNode:[[[capabilities firstChildWithName:@"arch"] firstChildWithName:@"loader"] text]]
+                [stanza up];
+            }
+
+            [stanza addChildWithName:@"boot" andAttributes:{"dev": boot}]
+            [stanza up];
+            break;
+
+        default:
+            if (machine && machine != "")
+                [stanza addChildWithName:@"type" andAttributes:{"machine": machine, "arch": arch}];
+            else
+                [stanza addChildWithName:@"type" andAttributes:{"arch": arch}];
+            [stanza addTextNode:OSType];
+            [stanza up];
+
+            [stanza addChildWithName:@"boot" andAttributes:{"dev": boot}]
+            [stanza up];
+            break;
     }
-    else
-    {
-        [stanza addChildWithName:@"type" andAttributes:{"machine": machine, "arch": arch}]
-        [stanza addTextNode:OSType];
-        [stanza up];
+    [stanza up];
 
-        [stanza addChildWithName:@"boot" andAttributes:{"dev": boot}]
-        [stanza up];
-        [stanza up];
-    }
 
-    //////////////////////////////////////////
     // POWER MANAGEMENT
-    //////////////////////////////////////////
+
     [stanza addChildWithName:@"on_poweroff"];
     [stanza addTextNode:[buttonOnPowerOff title]];
     [stanza up];
@@ -1505,9 +1722,9 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
     [stanza addTextNode:[buttonOnCrash title]];
     [stanza up];
 
-    //////////////////////////////////////////
+
     // FEATURES
-    //////////////////////////////////////////
+
     [stanza addChildWithName:@"features"];
 
     if ([switchPAE isOn])
@@ -1538,16 +1755,14 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
     }
 
 
-    //////////////////////////////////////////
     // DEVICES
-    //////////////////////////////////////////
+
     [stanza addChildWithName:@"devices"];
 
     // emulator
-    if ([[[capabilities objectForKey:@"domains"] objectForKey:hypervisor] containsKey:@"emulator"])
+    var emulator = [self emulatorOfCurrentGuest];
+    if (emulator)
     {
-        var emulator = [[[capabilities objectForKey:@"domains"] objectForKey:hypervisor] objectForKey:@"emulator"];
-
         [stanza addChildWithName:@"emulator"];
         [stanza addTextNode:emulator];
         [stanza up];
@@ -1599,13 +1814,15 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
     }
 
 
-    //////////////////////////////////////////
     // CONTROLS
-    //////////////////////////////////////////
-    if ([self isHypervisor:hypervisor inList:[TNXMLDescHypervisorKVM, TNXMLDescHypervisorQemu, TNXMLDescHypervisorKQemu, TNXMLDescHypervisorXen]])
+
+    if ([self isHypervisor:hypervisor inList:[TNXMLDescHypervisorKVM, TNXMLDescHypervisorQemu, TNXMLDescHypervisorKQemu]])
     {
-        [stanza addChildWithName:@"input" andAttributes:{"bus": "usb", "type": [buttonInputType title]}];
-        [stanza up];
+        if (![self isHypervisor:hypervisor inList:[TNXMLDescHypervisorXen]])
+        {
+            [stanza addChildWithName:@"input" andAttributes:{"bus": @"usb", "type": [buttonInputType title]}];
+            [stanza up];
+        }
 
         if ([fieldVNCPassword stringValue] != @"")
         {
@@ -1615,6 +1832,7 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
                 "port": "-1",
                 "keymap": VNCKeymap,
                 "passwd": VNCPassword}];
+            [stanza up];
         }
         else
         {
@@ -1623,14 +1841,15 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
                 "type": "vnc",
                 "port": "-1",
                 "keymap": VNCKeymap}];
+            [stanza up];
         }
-        [stanza up];
     }
 
     //devices up
     [stanza up];
 
     // send stanza
+    [buttonDefine setImage:_imageDefining];
     [_entity sendStanza:stanza andRegisterSelector:@selector(_didDefineXML:) ofObject:self withSpecificID:uid];
 }
 
@@ -1638,15 +1857,15 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
 */
 - (void)defineXMLString
 {
-    var desc    = (new DOMParser()).parseFromString(unescape(""+[fieldStringXMLDesc stringValue]+""), "text/xml").getElementsByTagName("domain")[0],
-        stanza  = [TNStropheStanza iqWithType:@"get"];
-
-    desc = document.importNode(desc, true);
+    var desc        = (new DOMParser()).parseFromString(unescape(""+[fieldStringXMLDesc stringValue]+""), "text/xml").getElementsByTagName("domain")[0],
+        stanza      = [TNStropheStanza iqWithType:@"get"],
+        descNode    = [TNXMLNode nodeWithXMLNode:desc];
 
     [stanza addChildWithName:@"query" andAttributes:{"xmlns": TNArchipelTypeVirtualMachineDefinition}];
     [stanza addChildWithName:@"archipel" andAttributes:{"action": TNArchipelTypeVirtualMachineDefinitionDefine}];
-    [stanza addNode:desc];
+    [stanza addNode:descNode];
 
+    [buttonDefine setImage:_imageDefining];
     [self sendStanza:stanza andRegisterSelector:@selector(_didDefineXML:)];
     [windowXMLEditor close];
 }
@@ -1662,6 +1881,7 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
     if (responseType == @"result")
     {
         CPLog.info(@"Definition of virtual machine " + [_entity nickname] + " sucessfuly updated")
+        [self handleDefinitionEdition:NO];
     }
     else if (responseType == @"error")
     {
@@ -1702,6 +1922,7 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
     if ([aStanza type] == @"result")
     {
         [[TNGrowlCenter defaultCenter] pushNotificationWithTitle:@"Virtual machine" message:@"Virtual machine has been undefined"];
+        [self setDefaultValues];
         [self getXMLDesc];
     }
     else if ([aStanza type] == @"error")
@@ -1716,6 +1937,8 @@ TNXMLDescInputTypes         = [TNXMLDescInputTypeMouse, TNXMLDescInputTypeTablet
 #pragma mark -
 #pragma mark Delegates
 
+/*! table view delegate
+*/
 - (void)tableViewSelectionDidChange:(CPNotification)aNotification
 {
     [_minusButtonDrives setEnabled:NO];

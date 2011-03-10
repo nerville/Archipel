@@ -16,6 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+@import "Resources/lang/localization.js"
 
 @import <Foundation/Foundation.j>
 @import <AppKit/AppKit.j>
@@ -27,7 +28,7 @@
 @import <MessageBoard/MessageBoard.j>
 @import <LPKit/LPKit.j>
 @import <LPKit/LPMultiLineTextField.j>
-@import <LPKit/LPCrashReporter.j>
+// @import <LPKit/LPCrashReporter.j>
 
 @import "Categories/TNCategories.j"
 @import "Controllers/TNAvatarController.j"
@@ -178,13 +179,13 @@ TNUserAvatarSize            = CPSizeMake(50.0, 50.0);
     @outlet CPButtonBar             buttonBarLeft;
     @outlet CPImageView             ledIn;
     @outlet CPImageView             ledOut;
+    @outlet CPProgressIndicator     progressIndicatorModulesLoading;
     @outlet CPSplitView             leftSplitView;
     @outlet CPSplitView             mainHorizontalSplitView;
     @outlet CPSplitView             splitViewTagsContents;
     @outlet CPTextField             labelCurrentUser;
+    @outlet CPTextField             labelModulesLoadingName;
     @outlet CPTextField             textFieldAboutVersion;
-    @outlet CPTextField             textFieldLoadingModuleLabel;
-    @outlet CPTextField             textFieldLoadingModuleTitle;
     @outlet CPView                  filterView;
     @outlet CPView                  leftView;
     @outlet CPView                  rightView;
@@ -197,7 +198,6 @@ TNUserAvatarSize            = CPSizeMake(50.0, 50.0);
     @outlet TNConnectionController  connectionController;
     @outlet TNContactsController    contactsController;
     @outlet TNGroupsController      groupsController;
-    @outlet TNModalWindow           windowModuleLoading;
     @outlet TNModuleController      moduleController;
     @outlet TNPreferencesController preferencesController;
     @outlet TNPropertiesController  propertiesController;
@@ -207,6 +207,10 @@ TNUserAvatarSize            = CPSizeMake(50.0, 50.0);
 
     BOOL                            _shouldShowHelpView;
     BOOL                            _tagsVisible;
+    CPButton                        _hideButton;
+    CPButton                        _userAvatarButton;
+    CPImage                         _hideButtonImageDisable;
+    CPImage                         _hideButtonImageEnable;
     CPImage                         _imageLedInData;
     CPImage                         _imageLedNoData;
     CPImage                         _imageLedOutData;
@@ -218,6 +222,7 @@ TNUserAvatarSize            = CPSizeMake(50.0, 50.0);
     CPTimer                         _ledInTimer;
     CPTimer                         _ledOutTimer;
     CPTimer                         _moduleLoadingDelay;
+    CPView                          _viewRosterMask;
     CPWindow                        _helpWindow;
     int                             _tempNumberOfReadyModules;
     TNiTunesTabView                 _moduleTabView;
@@ -227,10 +232,6 @@ TNUserAvatarSize            = CPSizeMake(50.0, 50.0);
     TNRosterDataViewGroup           _rosterDataViewForGroups;
     TNToolbar                       _mainToolbar;
     TNViewHypervisorControl         _currentRightViewContent;
-    CPButton                        _hideButton;
-    CPImage                         _hideButtonImageEnable;
-    CPImage                         _hideButtonImageDisable;
-    CPButton                        _userAvatarButton;
 }
 
 
@@ -250,7 +251,7 @@ TNUserAvatarSize            = CPSizeMake(50.0, 50.0);
         center      = [CPNotificationCenter defaultCenter],
         posx;
 
-    // register defaults defaults
+    /* register defaults defaults */
     [defaults registerDefaults:[CPDictionary dictionaryWithObjectsAndKeys:
             [bundle objectForInfoDictionaryKey:@"TNArchipelHelpWindowURL"], @"TNArchipelHelpWindowURL",
             [bundle objectForInfoDictionaryKey:@"TNArchipelVersion"], @"TNArchipelVersion",
@@ -262,15 +263,15 @@ TNUserAvatarSize            = CPSizeMake(50.0, 50.0);
             [bundle objectForInfoDictionaryKey:@"TNArchipelUseAnimations"], @"TNArchipelUseAnimations"
     ]];
 
-    // register logs
+    /* register logs */
     CPLogRegister(CPLogConsole, [defaults objectForKey:@"TNArchipelConsoleDebugLevel"]);
 
-    // main split views
-    [mainHorizontalSplitView setIsPaneSplitter:YES];
+    /* main split views */
+    [mainHorizontalSplitView setIsPaneSplitter:NO];
 
-    // tags split views
-    [splitViewTagsContents setIsPaneSplitter:YES];
-    [splitViewTagsContents setValue:0.0 forThemeAttribute:@"pane-divider-thickness"]
+    /* tags split views */
+    [splitViewTagsContents setIsPaneSplitter:NO];
+    [splitViewTagsContents setValue:0.0 forThemeAttribute:@"divider-thickness"]
 
     _tagsVisible = [defaults boolForKey:@"TNArchipelTagsVisible"];
 
@@ -303,7 +304,7 @@ TNUserAvatarSize            = CPSizeMake(50.0, 50.0);
 
     /* properties controller */
     CPLog.trace(@"initializing the leftSplitView");
-    [leftSplitView setIsPaneSplitter:YES];
+    [leftSplitView setIsPaneSplitter:NO];
     [leftSplitView setBackgroundColor:[CPColor colorWithHexString:@"D8DFE8"]];
     [[leftSplitView subviews][1] removeFromSuperview];
     [leftSplitView addSubview:[propertiesController mainView]];
@@ -319,6 +320,7 @@ TNUserAvatarSize            = CPSizeMake(50.0, 50.0);
     [_rosterOutlineView setSearchField:filterField];
     [_rosterOutlineView setEntityRenameField:[propertiesController entryName]];
     [filterField setOutlineView:_rosterOutlineView];
+    [filterField setMaximumRecents:10];
 
     /* init scroll view of the outline view */
     CPLog.trace(@"initializing _outlineScrollView");
@@ -362,17 +364,6 @@ TNUserAvatarSize            = CPSizeMake(50.0, 50.0);
     [self makeMainMenu];
 
 
-    /* module Loader */
-    [windowModuleLoading center];
-    [windowModuleLoading makeKeyAndOrderFront:nil];
-    [textFieldLoadingModuleTitle setTextShadowOffset:CGSizeMake(0.0, 1.0)];
-    [textFieldLoadingModuleTitle setValue:[CPColor whiteColor] forThemeAttribute:@"text-shadow-color" inState:CPThemeStateNormal];
-    [textFieldLoadingModuleTitle setTextColor:[CPColor colorWithHexString:@"000000"]];
-
-    [textFieldLoadingModuleLabel setTextShadowOffset:CGSizeMake(0.0, 1.0)];
-    [textFieldLoadingModuleLabel setValue:[CPColor whiteColor] forThemeAttribute:@"text-shadow-color" inState:CPThemeStateNormal];
-
-
     CPLog.trace(@"initializing moduleController");
     _tempNumberOfReadyModules = -1;
 
@@ -387,8 +378,17 @@ TNUserAvatarSize            = CPSizeMake(50.0, 50.0);
     [_moduleTabView setDelegate:moduleController];
     [_rosterOutlineView setModulesTabView:_moduleTabView];
 
+    var progressBarSize = CPSizeMake(CGRectGetWidth([leftView frame]) - 15, 16.0);
     CPLog.trace(@"Starting loading all modules");
-    [moduleController load];
+    [CPProgressIndicator initialize];
+    [progressIndicatorModulesLoading setStyle:CPProgressIndicatorBarStyle];
+    [progressIndicatorModulesLoading setMinValue:0.0];
+    [progressIndicatorModulesLoading setMaxValue:1.0];
+    [progressIndicatorModulesLoading setDoubleValue:0.0];
+    [progressIndicatorModulesLoading setFrameSize:progressBarSize];
+    [labelModulesLoadingName setFrameSize:progressBarSize];
+    [progressIndicatorModulesLoading setBackgroundColor:[CPColor colorWithPatternImage:[[CPImage alloc] initWithContentsOfFile:[bundle pathForResource:@"ProgressBarBezel.png"]]]];
+    [labelModulesLoadingName setAlignment:CPCenterTextAlignment];
 
     CPLog.trace(@"Display _helpWindow");
     _shouldShowHelpView = YES;
@@ -403,7 +403,7 @@ TNUserAvatarSize            = CPSizeMake(50.0, 50.0);
     _imageLedOutData    = [[CPImage alloc] initWithContentsOfFile:[bundle pathForResource:@"IconsDataLEDs/data-out.png"]];
     _imageLedNoData     = [[CPImage alloc] initWithContentsOfFile:[bundle pathForResource:@"IconsDataLEDs/data-no.png"]];
 
-    // buttonBar
+    /* buttonBar */
     CPLog.trace(@"Initializing the roster button bar");
     [mainHorizontalSplitView setButtonBar:buttonBarLeft forDividerAtIndex:0];
 
@@ -427,7 +427,6 @@ TNUserAvatarSize            = CPSizeMake(50.0, 50.0);
     [buttonBarLeft setValue:bezelColor forThemeAttribute:"bezel-color"];
     [buttonBarLeft setValue:buttonBezel forThemeAttribute:"button-bezel-color"];
     [buttonBarLeft setValue:buttonBezelHighlighted forThemeAttribute:"button-bezel-color" inState:CPThemeStateHighlighted];
-
 
     [plusButton setTarget:self];
     [plusButton setImage:[[CPImage alloc] initWithContentsOfFile:[bundle pathForResource:@"IconsButtonBar/plus.png"] size:CPSizeMake(16, 16)]];
@@ -454,10 +453,10 @@ TNUserAvatarSize            = CPSizeMake(50.0, 50.0);
     [buttons addObject:_hideButton];
     [buttonBarLeft setButtons:buttons];
 
-    // copyright;
+    /* copyright */
     [self copyright];
 
-    // connection label
+    /* connection label */
     [labelCurrentUser setFont:[CPFont systemFontOfSize:9.0]];
     [labelCurrentUser setStringValue:@""];
     [labelCurrentUser setTextColor:[CPColor colorWithHexString:@"6C707F"]];
@@ -465,7 +464,7 @@ TNUserAvatarSize            = CPSizeMake(50.0, 50.0);
     [labelCurrentUser setTextShadowOffset:CGSizeMake(0.0, 1.0)];
     [labelCurrentUser setValue:[CPColor colorWithHexString:@"C6CAD9"] forThemeAttribute:@"text-shadow-color"];
 
-    // about window
+    /* about window */
     [webViewAboutCredits setMainFrameURL:[bundle pathForResource:@"credits.html"]];
     [webViewAboutCredits setBorderedWithHexColor:@"#C0C7D2"];
     [textFieldAboutVersion setStringValue:[defaults objectForKey:@"TNArchipelVersion"]];
@@ -498,6 +497,23 @@ TNUserAvatarSize            = CPSizeMake(50.0, 50.0);
 
     CPLog.trace(@"registering for notification TNStropheContactMessageReceivedNotification");
     [center addObserver:self selector:@selector(didRetreiveUserVCard:) name:TNConnectionControllerCurrentUserVCardRetreived object:nil];
+
+    CPLog.trace(@"registering for notification TNConnectionControllerConnectionStarted");
+    [center addObserver:self selector:@selector(didConnectionStart:) name:TNConnectionControllerConnectionStarted object:connectionController];
+
+    /* Placing the connection window */
+    _moduleLoadingStarted = NO;
+    [[connectionController mainWindow] center];
+    [[connectionController mainWindow] makeKeyAndOrderFront:nil];
+    [connectionController initCredentials];
+
+    /* roster view mask */
+    var maskBackgroundImage = [[CPImage alloc] initWithContentsOfFile:[bundle pathForResource:@"Backgrounds/background-stripes.png"]];
+    _viewRosterMask = [[CPView alloc] initWithFrame:[leftView bounds]];
+    [_viewRosterMask setBackgroundColor:[CPColor colorWithPatternImage:maskBackgroundImage]];
+    [_viewRosterMask setAlphaValue:0.5];
+    [_viewRosterMask setAutoresizingMask:CPViewHeightSizable | CPViewWidthSizable];
+    [leftView addSubview:_viewRosterMask];
 
     CPLog.info(@"Initialization of AppController OK");
 }
@@ -656,6 +672,8 @@ TNUserAvatarSize            = CPSizeMake(50.0, 50.0);
     [_mainToolbar setPosition:902 forToolbarItemIdentifier:TNToolBarItemTags];
     [_mainToolbar setPosition:903 forToolbarItemIdentifier:TNToolBarItemHelp];
     [_mainToolbar setPosition:904 forToolbarItemIdentifier:TNToolBarItemLogout];
+
+    [_mainToolbar reloadToolbarItems];
 }
 
 /*! initialize the avatar button
@@ -678,11 +696,22 @@ TNUserAvatarSize            = CPSizeMake(50.0, 50.0);
     [_userAvatarButton setImage:[[CPImage alloc] initWithContentsOfFile:[bundle pathForResource:@"user-unknown.png"] size:TNUserAvatarSize]];
 
     [[_mainToolbar customSubViews] addObject:_userAvatarButton];
+    [_mainToolbar reloadToolbarItems];
 }
 
 
 #pragma mark -
 #pragma mark Notifications handlers
+
+/*! called when connectionController starts connection
+    it will eventually start to loads the modules
+    @param aNotification the notification
+*/
+- (void)didConnectionStart:(CPNotification)aNotification
+{
+    if (![moduleController isModuleLoadingStarted])
+        [moduleController load];
+}
 
 /*! Notification responder of TNStropheConnection
     will be performed on login
@@ -763,7 +792,6 @@ TNUserAvatarSize            = CPSizeMake(50.0, 50.0);
 {
 }
 
-
 - (void)didReceiveUserMessage:(CPNotification)aNotification
 {
     var user            = [[[aNotification userInfo] objectForKey:@"stanza"] fromUser],
@@ -782,7 +810,6 @@ TNUserAvatarSize            = CPSizeMake(50.0, 50.0);
 
     [_rosterOutlineView reloadData];
 }
-
 
 
 #pragma mark -
@@ -1237,6 +1264,7 @@ TNUserAvatarSize            = CPSizeMake(50.0, 50.0);
     [CPMenu popUpContextMenu:[aSender menu] withEvent:fake forView:aSender];
 }
 
+
 #pragma mark -
 #pragma mark User vCard management
 
@@ -1338,6 +1366,19 @@ TNUserAvatarSize            = CPSizeMake(50.0, 50.0);
 }
 
 /*! Delegate of TNOutlineView
+    it will check if all loaded module are ok to be hidden, otherwise
+    it will disallow to change selection
+*/
+- (BOOL)outlineView:(CPOutlineView)anOutlineView shouldSelectItem:(id)anItem
+{
+    for (var i = 0; i < [[moduleController loadedTabModules] count]; i++)
+        if (![[[moduleController loadedTabModules] objectAtIndex:i] shouldHide])
+            return NO;
+
+    return YES;
+}
+
+/*! Delegate of TNOutlineView
     will be performed when selection changes. Tab Modules displaying
     @param aNotification the received notification
 */
@@ -1414,6 +1455,14 @@ TNUserAvatarSize            = CPSizeMake(50.0, 50.0);
     [defaults setInteger:newWidth forKey:@"mainSplitViewPosition"];
 }
 
+/*! called when module controller has loaded a module
+*/
+- (void)moduleLoader:(TNModuleController)aLoader loadedBundle:(CPBundle)aBundle progress:(float)percent
+{
+    [progressIndicatorModulesLoading setDoubleValue:percent];
+    [labelModulesLoadingName setStringValue:@"Loaded " + [aBundle objectForInfoDictionaryKey:@"PluginDisplayName"]];
+}
+
 /*! delegate of TNModuleController sent when all modules are loaded
 */
 - (void)moduleLoaderLoadingComplete:(TNModuleController)aLoader
@@ -1421,12 +1470,10 @@ TNUserAvatarSize            = CPSizeMake(50.0, 50.0);
     CPLog.info(@"All modules have been loaded");
     CPLog.trace(@"Positionning the connection window");
 
-    [windowModuleLoading orderOut:nil];
-    [[connectionController mainWindow] center];
-    [[connectionController mainWindow] makeKeyAndOrderFront:nil];
-    [connectionController initCredentials];
-
+    [progressIndicatorModulesLoading setHidden:YES];
+    [labelModulesLoadingName setHidden:YES];
     [_mainToolbar reloadToolbarItems];
+    [_viewRosterMask removeFromSuperview];
 }
 
 /*! delegate of StropheCappuccino that will be trigger on Raw input traffic
@@ -1460,7 +1507,6 @@ TNUserAvatarSize            = CPSizeMake(50.0, 50.0);
 {
     [[aTimer userInfo] setImage:_imageLedNoData];
 }
-
 
 /*! Growl delegate
 */
